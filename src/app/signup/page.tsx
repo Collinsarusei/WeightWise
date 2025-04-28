@@ -55,7 +55,7 @@ export default function SignUpPage() {
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   // Keep local isLoading for form submission feedback on buttons, separate from global auth loading
   const [isLoading, setIsLoading] = useState(false);
-  // isCheckingAuth is potentially redundant now with authLoading/isTransitioning, 
+  // isCheckingAuth is potentially redundant now with authLoading/isTransitioning,
   // but keeping for now if there's specific Google redirect logic needed.
   const [isCheckingAuth, setIsCheckingAuth] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -87,18 +87,36 @@ export default function SignUpPage() {
               setError(friendlyMessage);
               toast({ title: "Sign Up Failed", description: friendlyMessage, variant: "destructive" });
             } else if (user) {
-              // Google sign-in users are often already verified or have a different flow
+              // --- Google Sign-Up Success: Create Firestore Doc ---
               const userData = {
                   email: user.email,
-                  username: user.displayName || ''
+                  username: user.displayName || 'User', // Use display name or default
+                  onboardingComplete: false, // <-- *** Explicitly set onboarding to false ***
+                  plan: 'free',             // <-- Initialize plan
+                  planStatus: 'active',       // <-- Initialize plan status
+                  // Initialize other fields if necessary
               };
-              await setDoc(doc(db, "users", user.uid), userData, { merge: true });
+              try {
+                  // Use merge: true to avoid overwriting potential existing data (though less likely for signup)
+                  await setDoc(doc(db, "users", user.uid), userData, { merge: true });
+                  console.log("User document created/updated in Firestore for Google Sign-In.");
 
-              if (user.email) {
-                  triggerWelcomeEmail(user.email, user.displayName || undefined);
+                  // Trigger welcome email ONLY AFTER Firestore write succeeds
+                  if (user.email) {
+                      triggerWelcomeEmail(user.email, user.displayName || undefined);
+                  }
+
+                  // Toast can remain, redirect is handled by AuthProvider
+                  toast({ title: "Sign Up Successful", description: `Welcome, ${user.displayName || 'User'}!` });
+
+              } catch (dbError) {
+                  console.error("Failed to save user data to Firestore after Google Sign-In:", dbError);
+                  setError("Sign up successful, but failed to save initial profile data.");
+                  toast({ title: "Sign Up Error", description: "Could not save profile data.", variant: "destructive" });
+                  // Optionally sign the user out here if saving profile is critical
+                  // await signOut(); // Requires importing signOut from authService
               }
-              // Redirect will be handled by AuthProvider's useEffect
-              toast({ title: "Sign Up Successful", description: `Welcome, ${user.displayName || 'User'}!` });
+              // --- End Firestore Doc Creation ---
             }
           } catch (e: any) {
             console.error("Unexpected error checking redirect result:", e);
@@ -162,7 +180,9 @@ export default function SignUpPage() {
           email,
           username,
           // Initialize onboardingComplete to false during signup
-          onboardingComplete: false
+          onboardingComplete: false,
+          plan: 'free', // Initialize plan for email signup too
+          planStatus: 'active',
         });
 
         // Optional: Trigger welcome email
@@ -327,7 +347,7 @@ export default function SignUpPage() {
                 {isLoading && !showOverallLoading ? (
                   <Icons.spinner className="mr-2 h-4 w-4 animate-spin" />
                 ) : (
-                  <Icons.mail className="mr-2 h-4 w-4" /> // Placeholder icon (assuming mail icon for Google)
+                  <Icons.mail className="mr-2 h-4 w-4" /> // Correct Google icon
                 )}
                 Continue with Google
               </Button>
