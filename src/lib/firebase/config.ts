@@ -4,17 +4,17 @@ import { getAuth } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
 import { getFunctions } from "firebase/functions"; // <-- Import getFunctions
 
-// IMPORTANT: Replace with your actual Firebase configuration
-// Consider using environment variables for sensitive keys
+// Use environment variables for Firebase configuration
 const firebaseConfig = {
-  apiKey: "AIzaSyDU2oz52LMdf1dnRWLZD4TEuO-3lUP_Quc",
-  authDomain: "weightwise-6d4bb.firebaseapp.com",
-  projectId: "weightwise-6d4bb",
-  storageBucket: "weightwise-6d4bb.firebasestorage.app",
-  messagingSenderId: "759496352563",
-  appId: "1:759496352563:web:72a6639c5a3975b5b4d446",
-  measurementId: "G-V8ZQ5XQEBD"
+  apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
+  authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
+  projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
+  storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
+  appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
+  measurementId: process.env.NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID
 };
+
 // Initialize Firebase
 let app;
 if (!getApps().length) {
@@ -29,8 +29,6 @@ const functions = getFunctions(app); // <-- Initialize Functions
 
 export {
     app, auth,
-    // IMPORTANT: Replace with your actual Firebase configuration
-    // Consider using environment variables for sensitive keys
     db,
     functions, // <-- Export Functions
 };
