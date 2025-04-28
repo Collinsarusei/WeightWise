@@ -16,6 +16,7 @@ import {getWeightEntries} from '@/services/external-apis/weight-tracker';
 
 const GenerateDailyAdviceInputSchema = z.object({
   userId: z.string().describe('The ID of the user.'),
+  goal: z.string().describe('The weight management goal (e.g., lose, gain, maintain).'), // Added goal
   currentWeightKg: z.number().describe('The current weight of the user in kilograms.'),
   targetWeightKg: z.number().describe('The target weight of the user in kilograms.'),
   activityLevel: z.string().describe('The activity level of the user (e.g., sedentary, moderate, active).'),
@@ -39,6 +40,7 @@ const generateDailyAdvicePrompt = ai.definePrompt({
   input: {
     schema: z.object({
       userId: z.string().describe('The ID of the user.'),
+      goal: z.string().describe('The weight management goal (e.g., lose, gain, maintain).'), // Added goal
       currentWeightKg: z.number().describe('The current weight of the user in kilograms.'),
       targetWeightKg: z.number().describe('The target weight of the user in kilograms.'),
       activityLevel: z.string().describe('The activity level of the user (e.g., sedentary, moderate, active).'),
@@ -53,22 +55,26 @@ const generateDailyAdvicePrompt = ai.definePrompt({
       alert: z.string().optional().describe('An optional alert message for the user, if any.'),
     }),
   },
-  prompt: `You are a weight management expert providing personalized daily advice to users.
+  // Removed incorrect backslashes around the template literal
+  prompt: `You are WeightWise AI, a supportive weight management expert providing personalized daily guidance.
 
-  Consider the user's current weight, target weight, activity level, dietary preference, and historical weight data to generate the advice.
+  User Context:
+  - Goal: {{goal}} // Explicit Goal marker
+  - Current Weight: {{currentWeightKg}} kg
+  - Target Weight: {{targetWeightKg}} kg
+  - Activity Level: {{activityLevel}}
+  - Dietary Preference: {{dietaryPreference}}
+  - Recent Weight Entries (if available): {{weightEntries}}
 
-  Current Weight: {{currentWeightKg}} kg
-  Target Weight: {{targetWeightKg}} kg
-  Activity Level: {{activityLevel}}
-  Dietary Preference: {{dietaryPreference}}
-  Weight Entries: {{weightEntries}}
+  Based ONLY on the provided User Context:
+  1. Provide 1-2 concise, actionable pieces of advice for today specifically tailored to the user's *goal* ("{{goal}}"), *activity level*, and *dietary preference*. If the goal is 'lose', suggest a calorie deficit activity or meal idea. If 'gain', suggest a surplus activity/meal. If 'maintain', suggest balancing activity. Reference the activity level and diet preference in the suggestion.
+  2. Write a short, positive encouraging message related to the "{{goal}}".
+  3. Optionally, include a brief alert if the weight trend (if data exists) significantly contradicts the goal (e.g., consistent gain on a 'lose' goal).
 
-  Provide personalized advice, encouragement, and an optional alert based on the user's data.
-
-  Format your response as a JSON object with the following keys:
-  - advice: The personalized daily advice for the user.
-  - encouragement: An encouraging message for the user.
-  - alert: An optional alert message for the user, if any.
+  Format your response strictly as a JSON object with the following keys:
+  - advice: (String containing the actionable advice from step 1)
+  - encouragement: (String containing the positive message from step 2)
+  - alert: (Optional String containing the alert from step 3, omit if not applicable)
   `,
 });
 
@@ -84,10 +90,17 @@ async input => {
   const weightEntries = await getWeightEntries(input.userId);
   const weightEntriesString = JSON.stringify(weightEntries);
 
-  const {output} = await generateDailyAdvicePrompt({
-    ...input,
+  // Ensure the goal is passed to the prompt
+  const promptInput = {
+    userId: input.userId,
+    goal: input.goal, // Pass the goal explicitly
+    currentWeightKg: input.currentWeightKg,
+    targetWeightKg: input.targetWeightKg,
+    activityLevel: input.activityLevel,
+    dietaryPreference: input.dietaryPreference,
     weightEntries: weightEntriesString,
-  });
+  };
+
+  const {output} = await generateDailyAdvicePrompt(promptInput);
   return output!;
 });
-
