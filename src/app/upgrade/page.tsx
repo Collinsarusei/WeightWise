@@ -19,7 +19,6 @@ import { getFunctions, httpsCallable } from 'firebase/functions';
 import { useToast } from '@/hooks/use-toast';
 
 // --- Configuration: Define Plan Details ---
-// Reverting to KES for processing as per Paystack account limitations
 const plans = [
   {
     name: 'Free',
@@ -27,7 +26,7 @@ const plans = [
     yearlyPriceNum: 0,
     monthlyPrice: '$0 / month', // Display text
     yearlyPrice: '$0 / year', // Display text
-    currency: 'KES', // Set consistent currency
+    currency: 'USD', // <-- Changed currency to USD
     description: 'Basic features, free forever.',
     details: [
       'Basic weight tracking',
@@ -39,13 +38,13 @@ const plans = [
   },
   {
     name: 'Premium',
-    // Use KES numerical values for backend calculation
-    monthlyPriceNum: 299, // Example: KES 299
-    yearlyPriceNum: 2999, // Example: KES 2999
-    // Display KES prices
-    monthlyPrice: 'KES 299 / month',
-    yearlyPrice: 'KES 2999 / year',
-    currency: 'KES', // Set processing currency to KES
+    // Use USD numerical values for backend processing
+    monthlyPriceNum: 2.99,
+    yearlyPriceNum: 29.99,
+    // Display USD prices
+    monthlyPrice: '$2.99 / month',
+    yearlyPrice: '$29.99 / year',
+    currency: 'USD', // <-- Changed currency to USD
     description: 'Unlock AI insights & detailed analytics.',
     details: [
       'Basic weight tracking',
@@ -101,9 +100,9 @@ const UpgradePage = () => {
       const functionsInstance = getFunctions();
       const initiatePayment = httpsCallable(functionsInstance, 'initiatePaystackPayment');
 
-      // 5. Determine base numerical amount and currency (now KES)
+      // 5. Determine base numerical amount and currency (USD)
       const amountNum = billingCycle === 'monthly' ? selectedPlan.monthlyPriceNum : selectedPlan.yearlyPriceNum;
-      const currency = selectedPlan.currency; // Should be 'KES' based on config
+      const currency = selectedPlan.currency; // Should be 'USD' based on config
 
       // 6. Validate amount
       if (typeof amountNum !== 'number' || isNaN(amountNum) || amountNum < 0) {
@@ -113,9 +112,9 @@ const UpgradePage = () => {
         return;
       }
 
-      // 7. Prepare payload for backend (Backend will handle converting to kobo)
+      // 7. Prepare payload for backend (Backend needs to handle USD and Kobo/cents conversion)
       const paymentData = {
-        amount: amountNum, // Send the KES amount (e.g., 299)
+        amount: amountNum, // Send the USD amount (e.g., 2.99)
         currency: currency,
         billingCycle: billingCycle,
       };
@@ -183,7 +182,7 @@ const UpgradePage = () => {
                 </Button>
               ) : (
                 <>
-                  {/* Monthly Upgrade Button - Displays & Processes KES */}
+                  {/* Monthly Upgrade Button - Displays USD */}
                   <Button
                     size="lg"
                     onClick={() => handleUpgrade(plan.name, 'monthly')}
@@ -193,11 +192,11 @@ const UpgradePage = () => {
                     {loading === 'monthly' ? (
                       <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                     ) : null}
-                    {/* Display KES Text */}
+                    {/* Display USD Text */}
                     {plan.monthlyPrice}
                   </Button>
 
-                  {/* Yearly Upgrade Button - Displays & Processes KES */}
+                  {/* Yearly Upgrade Button - Displays USD */}
                   <Button
                     size="lg"
                     variant="outline"
@@ -208,7 +207,7 @@ const UpgradePage = () => {
                     {loading === 'yearly' ? (
                       <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                     ) : null}
-                    {/* Display KES Text */}
+                    {/* Display USD Text */}
                     {plan.yearlyPrice}
                   </Button>
                 </>

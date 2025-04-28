@@ -1,3 +1,8 @@
+/* eslint-disable max-len */
+/* eslint-disable @typescript-eslint/no-explicit-any */
+/* eslint-disable require-jsdoc */
+
+// Firebase Functions Imports
 import * as functions from "firebase-functions/v1";
 import * as admin from "firebase-admin";
 import {Resend} from "resend";
@@ -8,21 +13,30 @@ import {CallableContext} from "firebase-functions/v1/https";
 // Initialize Firebase Admin SDK
 admin.initializeApp();
 
-// Get Resend API key
-const resendApiKey = functions.config().resend?.apikey;
+// --- Resend Configuration ---
+// ** IMPORTANT: Replace with defineSecret for production **
+// const resendApiKey = defineSecret("RESEND_API_KEY"); // Use this in production
+const resendApiKey = functions.config().resend?.apikey; // Fallback for older config
 let resend: Resend | null = null;
 if (resendApiKey) {
-  resend = new Resend(resendApiKey);
+  // If using defineSecret, access with .value() inside functions
+  // For functions.config(), access directly here
+  resend = new Resend(typeof resendApiKey === "string" ? resendApiKey : ""); // Handle potential type difference
   functions.logger.info("Resend client initialized.");
 } else {
   functions.logger.error(
-    "Resend API key is not configured in Firebase Functions."
+    "Resend API key is not configured (resend.apikey)."
   );
 }
+// --- End Resend Configuration ---
+
 
 // --- Paystack Configuration ---
-const paystackSecretKey = functions.config().paystack?.secret_key;
-const paystackWebhookSecret = functions.config().paystack?.webhook_secret;
+// ** IMPORTANT: Replace with defineSecret for production **
+// const paystackSecretKey = defineSecret("PAYSTACK_SECRET_KEY");
+// const paystackWebhookSecret = defineSecret("PAYSTACK_WEBHOOK_SECRET");
+const paystackSecretKey = functions.config().paystack?.secret_key; // Fallback
+const paystackWebhookSecret = functions.config().paystack?.webhook_secret; // Fallback
 
 if (!paystackSecretKey) {
   functions.logger.error(
@@ -40,7 +54,7 @@ if (!paystackWebhookSecret) {
 // --- Email Sending Logic ---
 interface EmailOptions { to: string; subject:
   string; html: string; text?: string; }
-const fromEmail = "onboarding@resend.dev";
+const fromEmail = "onboarding@resend.dev"; // TODO: Replace with your verified sender
 /**
  * Sends an email using the configured Resend client.
  * @param {EmailOptions} options The email options.
@@ -48,8 +62,13 @@ const fromEmail = "onboarding@resend.dev";
  * @throws {Error} If Resend is not initialized or email sending fails.
  */
 async function sendEmail(options: EmailOptions): Promise<void> {
-  if (!resend) {
-    throw new Error("Email service not configured.");
+  // Access secret inside function if using defineSecret
+  // const apiKey = resendApiKey.value();
+  // const resendInstance = new Resend(apiKey);
+
+  // Using direct key from config for this example based on original code
+  if (!resend) { // Check instance created at top level
+    throw new Error("Email service (Resend) not configured.");
   }
   try {
     const {data, error} = await resend.emails.send({from:
@@ -110,15 +129,15 @@ interface ScheduledFunctionContext { timestamp: string; }
 
 export const sendWeeklyFitnessReports = functions.pubsub
   .schedule("every sunday 09:00")
-  .timeZone("Africa/Nairobi")
+  .timeZone("Africa/Nairobi") // Set to your desired timezone
   .onRun(async (context: ScheduledFunctionContext) => {
     functions.logger.info(
       "Starting weekly fitness report job.",
       {timestamp: context.timestamp}
     );
 
-    if (!resend) {
-      functions.logger.error("Resend client not initialized. Aborting job.");
+    if (!resendApiKey) { // Check if key exists before proceeding
+      functions.logger.error("Resend API key not configured. Aborting job.");
       return null;
     }
 
@@ -147,13 +166,20 @@ export const sendWeeklyFitnessReports = functions.pubsub
           functions.logger.warn(`User ${userId} missing email. Skipping.`);
           continue;
         }
+        // Optional: Add check if user is premium before sending report
+        if (userData.plan !== "premium" || userData.planStatus !== "active") {
+          functions.logger.info(`User ${userId} is not premium or not active. Skipping report.`);
+          continue;
+        }
 
         try {
-          // Placeholder: Fetch & Calculate Weekly Data
+          // Placeholder: Fetch & Calculate Weekly Data for user userId
+          // You need to implement the actual logic here to query Firestore
+          // for the user's exercises within the past week and calculate totals.
           functions.logger.info(
-            `Fetching data for user ${userId}... (Placeholder)`
+            `Fetching data for user ${userId}... (Placeholder - Implement Actual Logic)`
           );
-          const mockWeeklyData: WeeklyReportData = {
+          const mockWeeklyData: WeeklyReportData = { // Replace with real calculation
             totalCaloriesBurned: Math.floor(Math.random() * 1500) + 500,
             totalWorkouts: Math.floor(Math.random() * 5) + 1,
           };
@@ -197,11 +223,11 @@ export const sendWeeklyFitnessReports = functions.pubsub
     }
   });
 
-// --- Paystack Payment Initiation Function ---
+// --- Paystack Payment Initiation Function (Handler) ---
 
 interface InitiatePaymentData {
-  amount: number; // Expecting amount in major unit (e.g., 299 for KES 299)
-  currency: string; // Expecting currency code (e.g., KES)
+  amount: number; // Expecting amount in major unit (e.g., 2.99 for USD)
+  currency: string; // Expecting currency code (e.g., USD)
   billingCycle: "monthly" | "yearly";
 }
 
@@ -211,10 +237,16 @@ interface InitiatePaymentResult {
   reference?: string;
 }
 
+// Internal handler function
 const initiateProUpgradePaymentHandler = async (
   data: InitiatePaymentData,
   context: CallableContext
 ): Promise<InitiatePaymentResult> => {
+  // ** Access secret inside the function if using defineSecret **
+  // const secretKey = paystackSecretKey.value();
+  // Using direct config access based on original code structure
+  const secretKey = paystackSecretKey;
+
   if (!context.auth) {
     functions.logger.error("initiatePaystackPayment: Unauthenticated call.");
     throw new functions.https.HttpsError(
@@ -222,7 +254,7 @@ const initiateProUpgradePaymentHandler = async (
     );
   }
 
-  if (!paystackSecretKey) {
+  if (!secretKey) { // Check the key fetched/defined above
     functions.logger.error("initiatePaystackPayment:" +
        "Paystack Secret Key missing.");
     throw new functions.https.HttpsError(
@@ -239,27 +271,28 @@ const initiateProUpgradePaymentHandler = async (
     functions.logger.error("User email is missing in auth token.");
     throw new functions.https.HttpsError("internal", "User email not found.");
   }
-  // Amount from frontend is in KES, ensure it's a positive number
+  // Amount from frontend is in USD, ensure it's a positive number
   if (typeof amount !== "number" || isNaN(amount) || amount <= 0 ) {
     throw new functions.https.HttpsError("invalid-argument",
-      "Amount must be a positive number representing the value in KES.");
+      "Amount must be a positive number representing the value in USD."); // <-- Updated comment
   }
-  if (currency !== "KES") {
-    throw new functions.https.HttpsError("invalid-argument",
-      "Currency must be KES.");
+  // --- CHANGE: Expect USD ---
+  if (currency !== "USD") {
+    functions.logger.error("initiatePaystackPayment: Invalid currency received:", currency, ". Expected USD.");
+    throw new functions.https.HttpsError("invalid-argument", `Invalid currency '${currency}'. Expected USD.`);
   }
   if (billingCycle !== "monthly" && billingCycle !== "yearly") {
     throw new functions.https.HttpsError("invalid-argument",
       "Invalid billing cycle specified.");
   }
 
-  // --- FIX: Convert KES amount to smallest unit (Kobo) for Paystack ---
-  const amountInKobo = Math.round(amount * 100);
+  // --- CHANGE: Convert USD amount to smallest unit (Cents) for Paystack ---
+  const amountInCents = Math.round(amount * 100);
   functions.logger.info(
-    `Converting amount for Paystack:
-     ${amount} ${currency} -> ${amountInKobo} Kobo`
+    "Converting amount for Paystack: " +
+    `${amount} ${currency} -> ${amountInCents} Cents` // <-- Updated log
   );
-  // --- End Fix ---
+  // --- End Change ---
 
   // Generate a unique reference for this transaction
   const reference = `PRO_${billingCycle.toUpperCase()}_${userId}_${Date.now()}`;
@@ -267,20 +300,22 @@ const initiateProUpgradePaymentHandler = async (
   // Prepare Paystack API request body
   const apiRequestBody = {
     email: userEmail,
-    amount: amountInKobo, // Send amount in Kobo (e.g., 29900)
-    currency: currency, // Should be 'KES'
+    amount: amountInCents, // <-- Send amount in cents
+    currency: currency, // <-- Send 'USD'
     reference: reference,
     metadata: {
-      user_id: userId,
+      // Store userId directly in metadata root if possible, or use custom_fields
+      userId: userId, // <-- Changed from user_id to match webhook expectation if needed
       plan: "premium",
-      billing_cycle: billingCycle,
-      custom_fields: [
+      billingCycle: billingCycle, // <-- Changed from billing_cycle for consistency
+      custom_fields: [ // Keep custom_fields if Paystack requires them structured this way
         {display_name: "User ID", variable_name: "user_id", value: userId},
         {display_name: "Plan", variable_name: "plan",
           value: `Premium (${billingCycle})`},
+        {display_name: "Billing Cycle", variable_name: "billing_cycle", value: billingCycle}, // Added billing cycle here too
       ],
     },
-    // callback_url: `https://weightwise-6d4bb.web.app/dashboard?payment_ref=${reference}` // Optional
+    // callback_url: `https://yourdomain.com/dashboard?payment_ref=${reference}` // Optional
   };
 
   functions.logger.info(
@@ -302,13 +337,13 @@ const initiateProUpgradePaymentHandler = async (
       };
     }
 
+    // Use Axios as per original code
     const response = await axios.post<PaystackInitResponse>(
       paystackApiUrl,
-      apiRequestBody, // Contains amountInKobo
+      apiRequestBody, // Contains amountInCents
       {
         headers: {
-          "Authorization": `Bearer ${paystackSecretKey}`,
-          // Use Paystack Secret Key
+          "Authorization": `Bearer ${secretKey}`, // Use Paystack Secret Key
           "Content-Type": "application/json",
           "Accept": "application/json",
         },
@@ -366,10 +401,11 @@ const initiateProUpgradePaymentHandler = async (
   }
 };
 
-// Rename and export the Paystack payment initiation function
+// Export the HTTPS Callable function using the handler
 export const initiatePaystackPayment = functions.https.onCall(
   initiateProUpgradePaymentHandler
 );
+
 
 // --- Paystack Webhook Handler Function ---
 
@@ -381,17 +417,36 @@ export const handlePaystackWebhook = functions.https.onRequest(
   async (req, res): Promise<void> => {
     functions.logger.info("handlePaystackWebhook: Received request");
 
+    // ** Access secret inside the function if using defineSecret **
+    // const secret = paystackWebhookSecret.value();
+    // Using direct config access based on original code structure
+    const secret = paystackWebhookSecret;
+
     // 1. Verify Signature (CRUCIAL for security)
-    if (!paystackWebhookSecret) {
+    if (!secret) { // Check the key fetched/defined above
       functions.logger.error("Paystack Webhook Secret not configured.");
       res.status(500).send("Webhook config error.");
       return;
     }
     // IMPORTANT: Use rawBody for verification if available, otherwise req.body
-    const requestBodyString = req.rawBody ? req.rawBody.toString() :
-      JSON.stringify(req.body);
+    // Firebase Functions v1 automatically parses JSON, so req.rawBody might not be populated
+    // unless you configure middleware. Stringifying req.body is generally okay if rawBody isn't available.
+    let requestBodyString: string;
+    try {
+      // Attempt to use rawBody if populated by middleware (less common in v1)
+      // if (req.rawBody) {
+      //     requestBodyString = req.rawBody.toString();
+      // } else {
+      requestBodyString = JSON.stringify(req.body);
+      // }
+    } catch (e) {
+      functions.logger.error("Failed to stringify request body for webhook verification", e);
+      res.status(400).send("Invalid request body format.");
+      return;
+    }
+
     const hash = crypto
-      .createHmac("sha512", paystackWebhookSecret)
+      .createHmac("sha512", secret)
       .update(requestBodyString)
       .digest("hex");
     const signature = req.headers["x-paystack-signature"] as string;
@@ -416,19 +471,31 @@ export const handlePaystackWebhook = functions.https.onRequest(
     if (eventType === "charge.success") {
       const transactionData = eventData.data;
       const reference = transactionData?.reference;
+      // --- Read metadata based on how it was sent ---
+      // Check both root level and custom_fields based on initiation logic
       const metadata = transactionData?.metadata || {};
-      const userId = metadata?.user_id;
-      const plan = metadata?.plan;
-      const billingCycle = metadata?.billing_cycle;
+      const userId = metadata?.userId || metadata?.custom_fields?.find((f: any) => f.variable_name === "user_id")?.value;
+      const plan = metadata?.plan || metadata?.custom_fields?.find((f: any) => f.variable_name === "plan")?.value || "premium"; // Default to premium if missing but charge succeeded
+      const billingCycle = metadata?.billingCycle || metadata?.custom_fields?.find((f: any) => f.variable_name === "billing_cycle")?.value;
+      // --- End Reading Metadata ---
       const transactionId = transactionData?.id;
 
-      if (!reference || !userId || !plan) {
+      if (!reference || !userId || !plan || !billingCycle) {
         functions.logger.error(
-          "Missing reference, user_id, or plan in Paystack metadata.", metadata
+          "Missing reference, userId, plan, or billingCycle in Paystack data/metadata.",
+          {reference, userId, plan, billingCycle, metadata}
         );
-        res.status(200).send("Webhook received, missing required metadata.");
+        // Still send 200 OK to Paystack to avoid retries, but log the critical error
+        res.status(200).send("Webhook received, missing required data/metadata.");
         return;
       }
+      // Validate billing cycle again just in case
+      if (billingCycle !== "monthly" && billingCycle !== "yearly") {
+        functions.logger.error("Invalid billing cycle value found in webhook metadata:", billingCycle);
+        res.status(200).send("Webhook received, invalid billing cycle in metadata.");
+        return;
+      }
+
 
       functions.logger.info(
         `Processing successful charge for user: ${userId}, Plan: ${plan}, ` +
@@ -441,18 +508,19 @@ export const handlePaystackWebhook = functions.https.onRequest(
 
       try {
         await userRef.update({
-          plan: plan,
+          plan: "premium", // Explicitly set to premium on success
           billingCycle: billingCycle,
           planStatus: "active",
           subscriptionUpdatedAt: admin.firestore.FieldValue.serverTimestamp(),
           lastTransactionRef: reference,
           lastTransactionId: transactionId,
-          // paystackCustomerCode: transactionData?.customer?.customer_code
-          // Optional
+          // paystackCustomerCode: transactionData?.customer?.customer_code // Optional
+          // Consider clearing any reminder flags here if you implement reminders
+          // expiryReminderSent: admin.firestore.FieldValue.delete(),
         });
 
         functions.logger.info(
-          `User ${userId} successfully updated to ${plan} (${billingCycle}).`
+          `User ${userId} successfully updated to premium (${billingCycle}).`
         );
 
         res.status(200).send("Webhook processed successfully.");
@@ -461,11 +529,11 @@ export const handlePaystackWebhook = functions.https.onRequest(
           `handlePaystackWebhook: Firestore update failed for user ${userId}:`,
           dbError
         );
-        res.status(500).send("Internal server error" +
-          "processing payment update.");
+        // Send 200 OK to Paystack to prevent retries, but log the critical failure
+        res.status(200).send("Internal server error processing payment update.");
       }
     } else {
-      // Handle other event types if needed
+      // Handle other event types if needed (e.g., subscription failures, renewals)
       functions.logger.info(`Ignoring Paystack event type: ${eventType}`);
       res.status(200).send("Webhook received, event ignored.");
     }
@@ -474,13 +542,12 @@ export const handlePaystackWebhook = functions.https.onRequest(
 
 
 // === IMPORTANT: Firebase Environment Configuration ===
+// For production, use defineSecret and access secrets with .value() inside functions.
+// For older config (functions.config()):
 // Set these using the Firebase CLI:
 // firebase functions:config:set resend.apikey="YOUR_RESEND_API_KEY"
 // firebase functions:config:set paystack.secret_key="YOUR_PAYSTACK_SECRET_KEY"
-// firebase functions:config:set
-// paystack.public_key="YOUR_PAYSTACK_PUBLIC_KEY" // Optional for frontend
-// firebase functions:config:set
-// paystack.webhook_secret="YOUR_PAYSTACK_WEBHOOK_SECRET"
+// firebase functions:config:set paystack.webhook_secret="YOUR_PAYSTACK_WEBHOOK_SECRET"
 //
 // Deploy after setting config:
 // firebase deploy --only functions

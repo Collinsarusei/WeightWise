@@ -26,10 +26,10 @@ import { Footer } from '@/components/Footer';
 import PwaPrompt from '@/components/PwaPrompt';
 import { useAuth } from '@/components/AuthProvider';
 
-// Constants for Pricing (Replace with actual values/source)
-const PREMIUM_MONTHLY_PRICE_NUM = 2.99; // Example price
-const PREMIUM_YEARLY_PRICE_NUM = 29.99; // Example price
-const PREMIUM_CURRENCY = 'KES'; // IMPORTANT: Set to your IntaSend currency (e.g., KES, USD)
+// --- Updated Constants for Pricing ---
+const PREMIUM_MONTHLY_PRICE_NUM = 2.99;
+const PREMIUM_YEARLY_PRICE_NUM = 29.99;
+const PREMIUM_CURRENCY = 'USD'; // <-- Changed to USD
 
 // --- Date Helper Functions ---
 const getStartOfWeek = (date: Date, startDay = 0): Date => {
@@ -67,7 +67,6 @@ export default function DashboardPage() {
   // Local state
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [isDashboardLoading, setIsDashboardLoading] = useState(true);
-  // Removed isUpgrading state as it's no longer needed here
   const [allExercises, setAllExercises] = useState<ExerciseEntry[]>([]);
   const [viewedWeekStart, setViewedWeekStart] = useState<Date>(() => getStartOfWeek(new Date()));
   const [isLoadingExercises, setIsLoadingExercises] = useState(false);
