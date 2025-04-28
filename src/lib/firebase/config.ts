@@ -2,9 +2,9 @@
 import { initializeApp, getApps, getApp } from "firebase/app";
 import { getAuth } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
-import { getFunctions } from "firebase/functions"; // <-- Import getFunctions
+import { getFunctions } from "firebase/functions";
 
-// Use environment variables for Firebase configuration
+// Use environment variables ONLY for Firebase configuration
 const firebaseConfig = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
   authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
@@ -25,10 +25,10 @@ if (!getApps().length) {
 
 const auth = getAuth(app);
 const db = getFirestore(app);
-const functions = getFunctions(app); // <-- Initialize Functions
+const functions = getFunctions(app);
 
 export {
     app, auth,
     db,
-    functions, // <-- Export Functions
+    functions,
 };
