@@ -124,39 +124,41 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     const isAuthPage = pathname === '/login' || pathname === '/signup';
     const isOnboardingPage = pathname === '/onboarding';
-    const isProtectedRoute = !['/', '/login', '/signup'].includes(pathname);
+    const isProtectedRoute = !['/', '/login', '/signup', '/onboarding'].includes(pathname); // Add onboarding to non-protected routes for this logic
     const isUpgradePage = pathname === '/upgrade'; // Prevent redirect loop from upgrade page
 
     let redirectPath: string | null = null;
 
     if (!user) {
       // No user logged in
-      if (isProtectedRoute) {
+      // --- Redirect to /login only if trying to access a protected route --- 
+      if (isProtectedRoute) { // Check if it's NOT /, /login, /signup, /onboarding
         console.log("AuthProvider useEffect 3 (Redirect): No user, on protected route -> /login");
         redirectPath = '/login';
       }
     } else { // User is logged in
       if (!user.emailVerified) {
         // Allow user to stay on root/landing page if email not verified
-        if (isProtectedRoute || isAuthPage) {
-          console.log("AuthProvider useEffect 3 (Redirect): User logged in, email not verified, on protected/auth route -> /");
+        // --- Redirect to / if email not verified and trying to access other pages --- 
+        if (isProtectedRoute || isAuthPage || isOnboardingPage || isUpgradePage) {
+          console.log("AuthProvider useEffect 3 (Redirect): User logged in, email not verified, on protected/auth/onboarding/upgrade route -> /");
           redirectPath = '/'; // Redirect to a safe public page (e.g., homepage)
         }
       } else { // User logged in AND email verified
         if (isOnboardingComplete === false) {
+          // --- Redirect to /onboarding if onboarding is incomplete AND user is NOT already there ---
           if (!isOnboardingPage) {
             console.log("AuthProvider useEffect 3 (Redirect): User logged in, verified, onboarding incomplete -> /onboarding");
             redirectPath = '/onboarding';
           }
         } else if (isOnboardingComplete === true) {
-          // If onboarding is complete, and user is on an auth page or onboarding page, redirect to dashboard
-          if (isAuthPage || isOnboardingPage) {
-            console.log("AuthProvider useEffect 3 (Redirect): User logged in, verified, onboarding complete, on auth/onboarding page -> /dashboard");
+          // --- Redirect to /dashboard if onboarding IS complete AND user is on an auth page --- 
+          // NOTE: We REMOVED the redirect *away* from /onboarding here to allow revisiting
+          if (isAuthPage) { 
+            console.log("AuthProvider useEffect 3 (Redirect): User logged in, verified, onboarding complete, on auth page -> /dashboard");
             redirectPath = '/dashboard';
           }
-           // If onboarding is complete AND user is NOT pro, but is trying to access a pro feature page (you might add more later)
-          // this example doesn't prevent access to /dashboard itself, but you could add checks here.
-          // If onboarding is complete and user IS pro, and they land on /upgrade, redirect to dashboard
+           // If onboarding is complete and user IS pro, and they land on /upgrade, redirect to dashboard
           if (isPro && isUpgradePage) {
             console.log("AuthProvider useEffect 3 (Redirect): User is Pro and landed on /upgrade -> /dashboard");
             redirectPath = '/dashboard';
