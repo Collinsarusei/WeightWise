@@ -14,7 +14,7 @@ import { Input } from '@/components/ui/input';
 import { Icons } from '@/components/icons';
 import { doc, getDoc, collection, getDocs, query, orderBy, Timestamp } from 'firebase/firestore';
 import Link from "next/link";
-import { MessageSquare, ChevronLeft, CalendarClock, Zap } from 'lucide-react';
+import { MessageSquare, ChevronLeft, CalendarClock, Zap, Download } from 'lucide-react'; // Added Download icon
 import { useToast } from '@/hooks/use-toast';
 import { logExercise } from '@/lib/firebase/exerciseService';
 import { createWeightEntry } from '@/services/external-apis/weight-tracker';
@@ -50,7 +50,10 @@ interface UserProfile {
   dietaryPreference?: string;
   onboardingComplete?: boolean;
   isPro?: boolean;
+  // For PWA Install Prompt
+  deferredPrompt?: Event | null; // Adjust based on actual event type if needed
 }
+
 interface ExerciseEntry {
     id?: string;
     date: Timestamp;
@@ -84,8 +87,27 @@ export default function DashboardPage() {
   const [isFetchingWeekly, setIsFetchingWeekly] = useState(false);
   const [weeklyError, setWeeklyError] = useState<string | null>(null);
   const [isChatboxOpen, setIsChatboxOpen] = useState(false);
+  const [deferredInstallPrompt, setDeferredInstallPrompt] = useState<any>(null); // State to hold the install prompt event
 
   const currentWeekStartDate = useMemo(() => getStartOfWeek(new Date()), []);
+
+  // --- PWA Install Prompt Listener ---
+  useEffect(() => {
+    const handler = (e: Event) => {
+      // Prevent the mini-infobar from appearing on mobile
+      e.preventDefault();
+      // Stash the event so it can be triggered later.
+      console.log('beforeinstallprompt event fired', e);
+      setDeferredInstallPrompt(e);
+      // Optionally, update UI to show a button
+    };
+
+    window.addEventListener('beforeinstallprompt', handler);
+
+    return () => {
+      window.removeEventListener('beforeinstallprompt', handler);
+    };
+  }, []);
 
   // --- Data Fetching Callbacks ---
   const fetchExercises = useCallback(async (userId: string) => {
@@ -170,11 +192,32 @@ export default function DashboardPage() {
   const handlePreviousWeek = () => { setViewedWeekStart(prev => addDays(prev, -7)); };
   const handleGoToThisWeek = () => { setViewedWeekStart(currentWeekStartDate); };
 
-  // --- Handler to Navigate to Upgrade Page --- (NEW)
+  // Handler to Navigate to Upgrade Page
   const navigateToUpgrade = () => {
     router.push('/upgrade');
   };
-  // --- End Handler to Navigate to Upgrade Page ---
+
+  // --- PWA Install Button Handler ---
+  const handleInstallClick = async () => {
+    if (!deferredInstallPrompt) {
+      console.log('Install prompt event not available.');
+      toast({ title: "Install Not Available", description: "The app cannot be installed at this moment.", variant: "destructive" });
+      return;
+    }
+    // Show the install prompt
+    deferredInstallPrompt.prompt();
+    // Wait for the user to respond to the prompt
+    const { outcome } = await deferredInstallPrompt.userChoice;
+    console.log(`User response to the install prompt: ${outcome}`);
+    // We've used the prompt, clear it
+    setDeferredInstallPrompt(null);
+    // Optionally track the outcome
+    if (outcome === 'accepted') {
+      toast({ title: "Installation Started", description: "WeightWise will be installed shortly.", variant: "default" });
+    } else {
+      toast({ title: "Installation Cancelled", variant: "default" });
+    }
+  };
 
   // --- Render Logic ---
   if (authLoading) {
@@ -191,7 +234,15 @@ export default function DashboardPage() {
           {/* --- Header --- */}
           <div className="flex flex-col sm:flex-row justify-between items-center mb-6 md:mb-8 gap-4">
             <h1 className="text-3xl md:text-4xl font-extrabold text-gray-800">🏋️‍♀️ WeightWise Dashboard</h1>
-            <Button onClick={handleSignOut} variant="outline" size="sm">Sign Out</Button>
+             <div className="flex items-center gap-2">
+                {/* --- Install App Button --- */}
+                {deferredInstallPrompt && (
+                    <Button onClick={handleInstallClick} variant="outline" size="sm" className="border-blue-600 text-blue-700 hover:bg-blue-50 hover:text-blue-800">
+                        <Download className="mr-2 h-4 w-4" /> Install App
+                    </Button>
+                )}
+                <Button onClick={handleSignOut} variant="outline" size="sm">Sign Out</Button>
+             </div>
           </div>
 
           {/* --- Profile Section --- */}
@@ -225,7 +276,14 @@ export default function DashboardPage() {
                      ) : (
                         <p className="text-gray-500">Profile details could not be loaded. Please complete onboarding.</p>
                      )}
-                    <div className="mt-4"> <Link href="/onboarding"> <Button variant="outline" size="sm" className="border-green-600 text-green-700 hover:bg-green-50 hover:text-green-800"> Update Profile/Goal </Button> </Link> </div>
+                    {/* --- FIX: Wrapped Button in Link --- */}
+                    <div className="mt-4">
+                        <Link href="/onboarding" passHref>
+                            <Button variant="outline" size="sm" className="border-green-600 text-green-700 hover:bg-green-50 hover:text-green-800">
+                                Update Profile/Goal
+                            </Button>
+                        </Link>
+                    </div>
                  </>
              )}
           </div>
@@ -342,8 +400,7 @@ export default function DashboardPage() {
             </div>
           )}
 
-           {/* --- PWA Prompt Component --- */}
-           {!isDashboardLoading && <PwaPrompt />}
+           {/* Removed PWA Prompt Component from here, relying on button */}
 
         </div> {/* End max-width container */}
       </main>
