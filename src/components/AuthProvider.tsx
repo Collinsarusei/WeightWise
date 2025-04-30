@@ -67,15 +67,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
            if (docSnap.exists()) {
              const data = docSnap.data() as DocumentData;
              const onboardingStatus = !!data.onboardingComplete;
-             // --- Check for premium status using 'plan' and 'planStatus' --- 
              const premiumStatus = data.plan === 'premium' && data.planStatus === 'active';
              console.log("AuthProvider useEffect 2: User doc exists.", { onboardingComplete: onboardingStatus, isPro: premiumStatus });
              setIsOnboardingComplete(onboardingStatus);
-             setIsPro(premiumStatus); // <-- UPDATE isPro state based on plan/status
+             setIsPro(premiumStatus);
            } else {
              console.warn("AuthProvider useEffect 2: User document does not exist. Assuming onboarding incomplete and not pro.");
              setIsOnboardingComplete(false);
-             setIsPro(false); // <-- Default isPro to false
+             setIsPro(false);
            }
            setLoading(false);
            setIsTransitioning(false);
@@ -83,22 +82,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
          },
          (error) => { // Error callback
            console.error("AuthProvider useEffect 2: Error in onSnapshot listener:", error);
-           setIsOnboardingComplete(false); // Assume incomplete on error
-           setIsPro(false); // Assume not pro on error
-           setLoading(false); // Loading failed, stop loading
-           setIsTransitioning(false); // Transition failed, stop transitioning
+           setIsOnboardingComplete(false);
+           setIsPro(false);
+           setLoading(false);
+           setIsTransitioning(false);
            console.log("AuthProvider useEffect 2: Snapshot error. setLoading(false), setIsTransitioning(false).");
          }
        );
     } else {
-       setIsOnboardingComplete(null); // Reset onboarding state if user logs out
-       setIsPro(false); // Reset pro status if user logs out
-       if (loading) setLoading(false); // Ensure loading stops
-       if (isTransitioning) setIsTransitioning(false); // Ensure transition stops
+       setIsOnboardingComplete(null);
+       setIsPro(false);
+       if (loading) setLoading(false);
+       if (isTransitioning) setIsTransitioning(false);
        console.log("AuthProvider useEffect 2: No user, ensuring loading/transitioning/pro are false.");
     }
 
-    // Cleanup listener on component unmount or user change
     return () => {
       console.log("AuthProvider useEffect 2: Cleaning up onSnapshot listener.");
       if (unsubscribeSnapshot) {
@@ -113,56 +111,62 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     if (loading) {
       console.log("AuthProvider useEffect 3 (Redirect): Waiting for initial loading to finish.");
-      return; // Exit early if still loading
+      return; 
     }
     if (isOnboardingComplete === null && user) {
         console.log("AuthProvider useEffect 3 (Redirect): Waiting for onboarding status for logged-in user.");
-        return; // Exit if logged in but onboarding status not yet determined
+        return; 
     }
 
     console.log("AuthProvider useEffect 3 (Redirect): Proceeding with redirect logic.", { user: !!user, onboardingComplete: isOnboardingComplete, isPro, pathname });
 
     const isAuthPage = pathname === '/login' || pathname === '/signup';
     const isOnboardingPage = pathname === '/onboarding';
+    const isHomePage = pathname === '/'; // Check if current path is the homepage
     const isProtectedRoute = !['/', '/login', '/signup', '/onboarding'].includes(pathname); // Add onboarding to non-protected routes for this logic
-    const isUpgradePage = pathname === '/upgrade'; // Prevent redirect loop from upgrade page
+    const isUpgradePage = pathname === '/upgrade';
+    const isChatHistoryPage = pathname === '/chat-history'; // Added chat history page
 
     let redirectPath: string | null = null;
 
     if (!user) {
-      // No user logged in
-      // --- Redirect to /login only if trying to access a protected route --- 
-      if (isProtectedRoute) { // Check if it's NOT /, /login, /signup, /onboarding
-        console.log("AuthProvider useEffect 3 (Redirect): No user, on protected route -> /login");
+      // No user logged in: Redirect from protected routes (or upgrade/history) to /login
+      if (isProtectedRoute || isUpgradePage || isChatHistoryPage) { 
+        console.log("AuthProvider useEffect 3 (Redirect): No user, on protected/upgrade/history route -> /login");
         redirectPath = '/login';
       }
     } else { // User is logged in
       if (!user.emailVerified) {
-        // Allow user to stay on root/landing page if email not verified
-        // --- Redirect to / if email not verified and trying to access other pages --- 
-        if (isProtectedRoute || isAuthPage || isOnboardingPage || isUpgradePage) {
-          console.log("AuthProvider useEffect 3 (Redirect): User logged in, email not verified, on protected/auth/onboarding/upgrade route -> /");
-          redirectPath = '/'; // Redirect to a safe public page (e.g., homepage)
+         // Email not verified: Redirect from anywhere except homepage to homepage
+        if (!isHomePage) {
+          console.log("AuthProvider useEffect 3 (Redirect): User logged in, email not verified, NOT on homepage -> /");
+          redirectPath = '/'; 
         }
       } else { // User logged in AND email verified
         if (isOnboardingComplete === false) {
-          // --- Redirect to /onboarding if onboarding is incomplete AND user is NOT already there ---
+          // Onboarding incomplete: Redirect from anywhere except /onboarding to /onboarding
           if (!isOnboardingPage) {
             console.log("AuthProvider useEffect 3 (Redirect): User logged in, verified, onboarding incomplete -> /onboarding");
             redirectPath = '/onboarding';
           }
         } else if (isOnboardingComplete === true) {
-          // --- Redirect to /dashboard if onboarding IS complete AND user is on an auth page --- 
-          // NOTE: We REMOVED the redirect *away* from /onboarding here to allow revisiting
+          // Onboarding complete:
+          // Redirect from auth pages to /dashboard
           if (isAuthPage) { 
             console.log("AuthProvider useEffect 3 (Redirect): User logged in, verified, onboarding complete, on auth page -> /dashboard");
             redirectPath = '/dashboard';
           }
-           // If onboarding is complete and user IS pro, and they land on /upgrade, redirect to dashboard
+          // *** NEW: Redirect from homepage to /dashboard ***
+          if (isHomePage) {
+              console.log("AuthProvider useEffect 3 (Redirect): User logged in, verified, onboarding complete, on homepage -> /dashboard");
+              redirectPath = '/dashboard';
+          }
+          // Redirect Pro users from /upgrade to /dashboard
           if (isPro && isUpgradePage) {
             console.log("AuthProvider useEffect 3 (Redirect): User is Pro and landed on /upgrade -> /dashboard");
             redirectPath = '/dashboard';
           }
+          // Note: We explicitly ALLOW users to stay on /onboarding if they navigate there manually now
         }
       }
     }
