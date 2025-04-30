@@ -9,7 +9,6 @@ import { sendEmailVerification } from '@/lib/firebase/authService';
 import { useToast } from '@/hooks/use-toast';
 
 // --- CSS for Animation ---
-// You can add this to your global.css or keep it here
 const animationStyles = `
   @keyframes fadeIn {
     from { opacity: 0; transform: translateY(10px); }
@@ -30,7 +29,6 @@ export default function WelcomePage() {
   const [isResendingEmail, setIsResendingEmail] = useState(false);
   const [startAnimation, setStartAnimation] = useState(false);
 
-  // Trigger animation after component mounts
   useEffect(() => {
     setStartAnimation(true);
   }, []);
@@ -64,6 +62,11 @@ export default function WelcomePage() {
     );
   }
 
+  // --- Determine if Auth Buttons Should Show --- 
+  // Show if: No user logged in OR user exists but email is NOT verified
+  const showAuthButtons = !user || (user && !user.emailVerified);
+  // ---------------------------------------------
+
   return (
     <div className="flex flex-col min-h-screen w-full bg-gradient-to-br from-green-50 via-blue-50 to-purple-50">
       <style>{animationStyles}</style> {/* Inject animation CSS */}
@@ -77,7 +80,7 @@ export default function WelcomePage() {
             <div className="bg-yellow-100 border-l-4 border-yellow-500 text-yellow-700 p-4 mb-8 rounded-md" role="alert">
               <p className="font-bold">Email Verification Required</p>
               <p className="text-sm mb-3">Please check your inbox for a verification link to unlock all features.</p>
-              <p className="text-sm">Did not receive the email or entered the wrong address? Please sign up again with the correct email.</p>
+              {/* Removed redundant text about signing up again */}
               <Button
                 onClick={handleResendVerification}
                 disabled={isResendingEmail}
@@ -125,7 +128,8 @@ export default function WelcomePage() {
               <p className="text-gray-700 text-center mb-6">
                 Join our community and take the first step towards a healthier you.
               </p>
-              {(!user || user.emailVerified) && (
+              {/* --- UPDATED Condition to show buttons --- */}
+              {showAuthButtons && (
                  <div className="w-full flex flex-col gap-3">
                     <Button asChild size="lg" className="w-full bg-green-600 hover:bg-green-700 text-white rounded-lg shadow transition transform hover:-translate-y-0.5">
                       <Link href="/signup">Create Account</Link>
@@ -154,7 +158,7 @@ export default function WelcomePage() {
       </div>
 
       {/* Full-Width Footer */}
-      <footer className={`w-full bg-black py-4 ${startAnimation ? 'fade-in delay-3' : 'opacity-0'}`}> {/* <-- CORRECTED THIS LINE */} 
+      <footer className={`w-full bg-black py-4 ${startAnimation ? 'fade-in delay-3' : 'opacity-0'}`}> 
         <div className="text-center text-white text-sm">
           Built for your success. Powered by motivation.<br />
           &copy; {new Date().getFullYear()} WeightWise. All rights reserved.

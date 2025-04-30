@@ -21,36 +21,34 @@ const goals = [
 export default function OnboardingPage() {
   const router = useRouter();
   const { toast } = useToast();
-  // Get loading and isTransitioning states from AuthProvider
-  const { loading: authLoading, isTransitioning } = useAuth();
+  // Get loading state from AuthProvider (covers initial load and redirect transitions)
+  const { user, loading: authLoading } = useAuth();
 
   const [selectedGoal, setSelectedGoal] = useState('');
   const [currentWeight, setCurrentWeight] = useState('');
   const [targetWeight, setTargetWeight] = useState('');
   const [activityLevel, setActivityLevel] = useState('');
   const [dietaryPreference, setDietaryPreference] = useState('');
-  const [isLoading, setIsLoading] = useState(false); // Local loading state for form submission
+  // Local loading state specifically for the form submission process
+  const [isSubmitting, setIsSubmitting] = useState(false); 
 
   const handleSubmit = async () => {
-    const user = auth.currentUser;
+    // Use user from useAuth hook
     if (!user) {
         toast({ title: "Error", description: "User not logged in.", variant: "destructive" });
         return;
     }
+    // Validation...
     if (!selectedGoal || !currentWeight || !targetWeight || !activityLevel || !dietaryPreference) {
         toast({ title: "Incomplete Form", description: "Please fill out all fields.", variant: "destructive" });
         return;
     }
-
     const current = parseFloat(currentWeight);
     const target = parseFloat(targetWeight);
-
     if (isNaN(current) || current <= 0 || isNaN(target) || target <= 0) {
         toast({ title: "Invalid Weight", description: "Please enter valid positive numbers for weight.", variant: "destructive" });
         return;
     }
-
-    // Validation based on goal
     if (
       (selectedGoal === 'lose' && target >= current) ||
       (selectedGoal === 'gain' && target <= current) ||
@@ -60,36 +58,33 @@ export default function OnboardingPage() {
       return;
     }
 
-    setIsLoading(true); // Start local loading for form submission
+    setIsSubmitting(true); // Start local loading for form submission
 
     try {
       await setDoc(doc(db, "users", user.uid), {
-        // Keep existing fields
-        email: user.email, // Good practice to keep email if available
+        email: user.email, 
         goal: selectedGoal,
         currentWeight: current,
         targetWeight: target,
         activityLevel: activityLevel,
         dietaryPreference: dietaryPreference,
-        username: user.displayName || '', // Add username if available
-        onboardingComplete: true, // Mark onboarding as complete
+        username: user.displayName || '',
+        onboardingComplete: true, 
+      }, { merge: true }); 
 
-      }, { merge: true }); // Use merge: true to avoid overwriting other potential fields
-
-      toast({ title: "Success", description: "Profile updated. Redirecting..." }); // Updated message
-      // The redirect is handled by AuthProvider's useEffect after it detects onboardingComplete change
+      toast({ title: "Profile Saved!", description: "Redirecting to your dashboard..." }); 
+      // No explicit router.push here - AuthProvider handles redirect after state update
 
     } catch (err: any) {
       console.error("Failed to save onboarding data:", err);
       toast({ title: "Error", description: `Failed to save data: ${err.message}`, variant: "destructive" });
-    } finally {
-      setIsLoading(false); // Stop local loading after submit attempt
-    }
+      setIsSubmitting(false); // Stop local loading on error
+    } 
+    // Don't set isSubmitting(false) on success, let the redirect happen
   };
 
-  // Determine if we should show a global loading state instead of the form
-  // This happens during initial auth loading OR when AuthProvider is transitioning after submission
-  const showOverallLoading = authLoading || isTransitioning;
+  // Show loading if AuthProvider is initially loading OR if we are submitting the form
+  const showOverallLoading = authLoading || isSubmitting;
 
   return (
     <div className="min-h-screen flex items-center justify-center p-4 bg-gradient-to-br from-blue-50 to-purple-100">
@@ -97,13 +92,8 @@ export default function OnboardingPage() {
         <h1 className="text-2xl font-bold text-gray-800 text-center">Set Your Goal</h1>
         <p className="text-sm text-gray-600 text-center pb-2">Tell us about your goals and preferences.</p>
 
-        {/* Show overall loading if AuthProvider is loading initially or transitioning */}
-        {showOverallLoading ? (
-            <div className="flex justify-center items-center p-4 text-sm text-gray-600">
-              <Icons.spinner className="mr-2 h-5 w-5 animate-spin text-primary" />
-              <span>Processing data or Redirecting...</span> {/* More general message */}
-            </div>
-        ) : ( /* Show form only when not in an overall loading state */
+        {/* Show form only when NOT loading */}
+        {!showOverallLoading ? (
             <form onSubmit={(e) => { e.preventDefault(); handleSubmit(); }} className="space-y-4">
 
               {/* Goal Selection */}
@@ -113,18 +103,16 @@ export default function OnboardingPage() {
                       {goals.map(goal => (
                       <Button
                           key={goal.value}
-                          type="button" // Important: Prevent button from submitting form
+                          type="button" 
                           onClick={() => setSelectedGoal(goal.value)}
                           variant={selectedGoal === goal.value ? 'default' : 'outline'}
                           className="w-full text-xs sm:text-sm"
-                          disabled={showOverallLoading} // Disable during overall loading
                       >
                           {goal.label}
                       </Button>
                       ))}
                  </div>
               </fieldset>
-
 
               {/* Weight Inputs */}
                <div className="grid grid-cols-2 gap-3">
@@ -136,7 +124,7 @@ export default function OnboardingPage() {
                       onChange={(e) => setCurrentWeight(e.target.value)}
                       min="1"
                       className="border p-2 rounded-md"
-                      disabled={showOverallLoading} // Disable during overall loading
+                      required
                   />
                   <Input
                       type="number"
@@ -146,7 +134,7 @@ export default function OnboardingPage() {
                       onChange={(e) => setTargetWeight(e.target.value)}
                       min="1"
                       className="border p-2 rounded-md"
-                       disabled={showOverallLoading} // Disable during overall loading
+                      required
                   />
               </div>
 
@@ -158,7 +146,6 @@ export default function OnboardingPage() {
                       value={activityLevel}
                       onChange={(e) => setActivityLevel(e.target.value)}
                       required
-                      disabled={showOverallLoading} // Disable during overall loading
                       >
                       <option value="" disabled>Activity Level</option>
                       <option value="sedentary">Sedentary</option>
@@ -174,7 +161,6 @@ export default function OnboardingPage() {
                       value={dietaryPreference}
                       onChange={(e) => setDietaryPreference(e.target.value)}
                       required
-                       disabled={showOverallLoading} // Disable during overall loading
                       >
                       <option value="" disabled>Diet Preference</option>
                       <option value="omnivore">Omnivore</option>
@@ -187,15 +173,18 @@ export default function OnboardingPage() {
 
               {/* Submit Button */}
               <Button
-                type="submit" // Set type to submit for the form
+                type="submit"
                 className="mt-4 w-full bg-green-600 hover:bg-green-700 text-white"
-                 disabled={showOverallLoading || !selectedGoal || !currentWeight || !targetWeight || !activityLevel || !dietaryPreference}
+                 disabled={!selectedGoal || !currentWeight || !targetWeight || !activityLevel || !dietaryPreference}
               >
-                {/* Show local loading spinner only if submitting and not overall loading */}
-                {isLoading && !showOverallLoading ? <Icons.spinner className="mr-2 h-4 w-4 animate-spin" /> : null}
                 Continue to Dashboard
               </Button>
             </form>
+        ) : ( /* Show loading indicator if auth is loading OR form is submitting */
+            <div className="flex justify-center items-center p-4 text-sm text-gray-600">
+              <Icons.spinner className="mr-2 h-5 w-5 animate-spin text-primary" />
+              <span>{authLoading ? 'Loading user data...' : 'Saving profile...'}</span> 
+            </div>
         )}
       </div>
     </div>
