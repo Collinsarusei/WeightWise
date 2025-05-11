@@ -14,7 +14,7 @@ import { Input } from '@/components/ui/input';
 import { Icons } from '@/components/icons';
 import { doc, getDoc, collection, getDocs, query, orderBy, Timestamp } from 'firebase/firestore';
 import Link from "next/link";
-import { MessageSquare, ChevronLeft, CalendarClock, Zap, Download } from 'lucide-react'; // Added Download icon
+import { MessageSquare, ChevronLeft, CalendarClock, Zap, Download, Lock } from 'lucide-react'; // Added Lock icon
 import { useToast } from '@/hooks/use-toast';
 import { logExercise } from '@/lib/firebase/exerciseService';
 import { createWeightEntry } from '@/services/external-apis/weight-tracker';
@@ -49,7 +49,8 @@ interface UserProfile {
   activityLevel?: string;
   dietaryPreference?: string;
   onboardingComplete?: boolean;
-  isPro?: boolean;
+  isPro?: boolean; // This might be deprecated if useAuth().isPro is the source of truth
+  plan?: string; // Added to reflect premium status, e.g., "free" or "premium"
   // For PWA Install Prompt
   deferredPrompt?: Event | null; // Adjust based on actual event type if needed
 }
@@ -64,7 +65,7 @@ interface ExerciseEntry {
 // --- Component ---
 export default function DashboardPage() {
   const router = useRouter();
-  const { user: authUser, isPro, loading: authLoading } = useAuth();
+  const { user: authUser, isPro, loading: authLoading } = useAuth(); // isPro from useAuth is the source of truth for premium status
   const { toast } = useToast();
 
   // Local state
@@ -94,16 +95,11 @@ export default function DashboardPage() {
   // --- PWA Install Prompt Listener ---
   useEffect(() => {
     const handler = (e: Event) => {
-      // Prevent the mini-infobar from appearing on mobile
       e.preventDefault();
-      // Stash the event so it can be triggered later.
       console.log('beforeinstallprompt event fired', e);
       setDeferredInstallPrompt(e);
-      // Optionally, update UI to show a button
     };
-
     window.addEventListener('beforeinstallprompt', handler);
-
     return () => {
       window.removeEventListener('beforeinstallprompt', handler);
     };
@@ -137,6 +133,9 @@ export default function DashboardPage() {
       if (docSnap.exists()) {
         fetchedProfile = docSnap.data() as UserProfile;
         if (!fetchedProfile.username && authUser?.displayName) { fetchedProfile.username = authUser.displayName; }
+        // Ensure profile.isPro is consistent with useAuth.isPro if profile has its own isPro field
+        // Or rely solely on useAuth.isPro for premium status checks.
+        // For simplicity, we assume `useAuth().isPro` is the primary source of truth for premium status.
         setProfile(fetchedProfile);
       } else { console.log("[fetchProfile] No user profile document found!"); }
     } catch (error) { console.error("[fetchProfile] Error fetching profile document:", error); }
@@ -172,7 +171,7 @@ export default function DashboardPage() {
         fetchExercises(authUser.uid)
       ]).then(([profileResult]) => {
          setIsDashboardLoading(false);
-         if (profileResult.status === 'fulfilled' && isPro) {
+         if (profileResult.status === 'fulfilled' && profileResult.value && isPro) { // Check profileResult.value is not null
              triggerDailyAdviceFetch(profileResult.value);
          }
       });
@@ -188,11 +187,21 @@ export default function DashboardPage() {
   const handleExerciseSubmit = async () => { if (!authUser || !exerciseType.trim() || !duration.trim()) { setExerciseLogError("Please enter both exercise type and duration."); return; } const durationMinutes = parseInt(duration); if (isNaN(durationMinutes) || durationMinutes <= 0) { setExerciseLogError("Please enter a valid positive number for duration."); return; } setIsLoggingExercise(true); setExerciseLogError(null); try { await logExercise(authUser.uid, exerciseType.trim(), durationMinutes); setExerciseType(''); setDuration(''); await fetchExercises(authUser.uid); } catch (error) { console.error("HANDLE EXERCISE: Failed:", error); setExerciseLogError("Failed to save exercise."); } finally { setIsLoggingExercise(false); } };
   const handleLogWeightSubmit = async () => { if (!authUser || !currentWeightLog.trim()) return; const weightKg = parseFloat(currentWeightLog); if (isNaN(weightKg) || weightKg <= 0) { setLogWeightError("Please enter a valid positive weight."); setLogWeightSuccess(null); return; } setIsLoggingWeight(true); setLogWeightError(null); setLogWeightSuccess(null); try { await createWeightEntry(authUser.uid, { weightKg }); setLogWeightSuccess(`Weight (${weightKg} kg) logged successfully!`); setCurrentWeightLog(''); } catch (error) { console.error("Failed to log weight:", error); setLogWeightError("Could not save weight. Please try again."); } finally { setIsLoggingWeight(false); setTimeout(() => { setLogWeightSuccess(null); setLogWeightError(null); }, 4000); } };
   const handleFetchWeeklySummary = async () => { if (!authUser) return; setIsFetchingWeekly(true); setWeeklyError(null); setWeeklySummary(null); try { const result = await generateWeeklySummary({ userId: authUser.uid }); setWeeklySummary(result.summary); } catch (error) { console.error("Error fetching weekly summary:", error); setWeeklyError("Could not fetch weekly summary."); } finally { setIsFetchingWeekly(false); } };
-  const toggleChatbox = () => { setIsChatboxOpen(prev => !prev); };
+  
+  const toggleChatbox = () => {
+    // If user is not Pro and is trying to open the chatbox, redirect to upgrade
+    if (!isPro && !isChatboxOpen) { // Check if trying to OPEN and not pro
+      router.push('/upgrade');
+      return; // Important: stop further execution to prevent opening
+    }
+    // Otherwise, toggle as normal (handles opening for Pro, and all closing actions)
+    setIsChatboxOpen(prev => !prev);
+  };
+
   const handlePreviousWeek = () => { setViewedWeekStart(prev => addDays(prev, -7)); };
   const handleGoToThisWeek = () => { setViewedWeekStart(currentWeekStartDate); };
 
-  // Handler to Navigate to Upgrade Page
+  // Handler to Navigate to Upgrade Page (already exists, can be reused)
   const navigateToUpgrade = () => {
     router.push('/upgrade');
   };
@@ -204,14 +213,10 @@ export default function DashboardPage() {
       toast({ title: "Install Not Available", description: "The app cannot be installed at this moment.", variant: "destructive" });
       return;
     }
-    // Show the install prompt
     deferredInstallPrompt.prompt();
-    // Wait for the user to respond to the prompt
     const { outcome } = await deferredInstallPrompt.userChoice;
     console.log(`User response to the install prompt: ${outcome}`);
-    // We've used the prompt, clear it
     setDeferredInstallPrompt(null);
-    // Optionally track the outcome
     if (outcome === 'accepted') {
       toast({ title: "Installation Started", description: "WeightWise will be installed shortly.", variant: "default" });
     } else {
@@ -220,7 +225,7 @@ export default function DashboardPage() {
   };
 
   // --- Render Logic ---
-  if (authLoading) {
+  if (authLoading || (!profile && authUser && authUser.emailVerified)) { // Keep loading if authUser exists but profile isn't fetched yet
     return ( <div className="flex items-center justify-center min-h-screen"><Icons.spinner className="h-16 w-16 animate-spin text-green-600" /></div> );
   }
 
@@ -235,7 +240,6 @@ export default function DashboardPage() {
           <div className="flex flex-col sm:flex-row justify-between items-center mb-6 md:mb-8 gap-4">
             <h1 className="text-3xl md:text-4xl font-extrabold text-gray-800">🏋️‍♀️ WeightWise Dashboard</h1>
              <div className="flex items-center gap-2">
-                {/* --- Install App Button --- */}
                 {deferredInstallPrompt && (
                     <Button onClick={handleInstallClick} variant="outline" size="sm" className="border-blue-600 text-blue-700 hover:bg-blue-50 hover:text-blue-800">
                         <Download className="mr-2 h-4 w-4" /> Install App
@@ -247,24 +251,22 @@ export default function DashboardPage() {
 
           {/* --- Profile Section --- */}
           <div className="mb-6 p-6 rounded-xl shadow-lg bg-white/80 border border-gray-200 min-h-[150px] flex flex-col justify-center">
-             {isDashboardLoading ? (
+             {isDashboardLoading && !profile ? ( // Show spinner if dashboard loading AND profile is not yet set
                  <div className="text-center"><Icons.spinner className="h-6 w-6 animate-spin text-green-600 mx-auto" /></div>
              ) : (
                  <>
                     <div className="flex justify-between items-start mb-3">
                         <h2 className="text-xl md:text-2xl font-semibold text-gray-700"> Welcome back, {displayName}! 👋 </h2>
-                        {/* --- Upgrade Button -> Navigates to /upgrade --- */}
                         {!isPro && (
                              <Button
                                 size="sm"
                                 className="bg-gradient-to-r from-yellow-400 to-orange-500 hover:from-yellow-500 hover:to-orange-600 text-white font-bold shadow-md"
-                                onClick={navigateToUpgrade} // Use the navigation handler
+                                onClick={navigateToUpgrade}
                                 >
                                 <Zap className="mr-2 h-4 w-4" /> Upgrade to Pro
                              </Button>
                         )}
                     </div>
-                    {/* Profile details */}
                     {profile ? (
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2 text-sm md:text-base text-gray-700">
                             <p><strong>Goal:</strong> <span className="font-medium">{profile.goal === 'lose' ? 'Lose Weight' : profile.goal === 'gain' ? 'Gain Weight' : 'Maintain Weight'}</span></p>
@@ -274,9 +276,8 @@ export default function DashboardPage() {
                             {profile.dietaryPreference && <p><strong>Diet:</strong> <span className="font-medium">{profile.dietaryPreference}</span></p>}
                         </div>
                      ) : (
-                        <p className="text-gray-500">Profile details could not be loaded. Please complete onboarding.</p>
+                        <p className="text-gray-500">Profile details could not be loaded. Please complete onboarding or check your connection.</p>
                      )}
-                    {/* --- FIX: Wrapped Button in Link --- */}
                     <div className="mt-4">
                         <Link href="/onboarding" passHref>
                             <Button variant="outline" size="sm" className="border-green-600 text-green-700 hover:bg-green-50 hover:text-green-800">
@@ -289,7 +290,7 @@ export default function DashboardPage() {
           </div>
 
           {/* --- Action Grid --- */}
-          {!isDashboardLoading && (
+          {!isDashboardLoading && profile && (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mt-6">
               {/* Log Exercise Card */}
               <div className="bg-white p-5 rounded-xl shadow hover:shadow-lg transition border border-gray-100 flex flex-col">
@@ -347,24 +348,24 @@ export default function DashboardPage() {
            )}
 
           {/* --- AI Sections --- */}
-          {!isDashboardLoading && (
+          {!isDashboardLoading && profile && (
             <div className="mt-8 md:mt-10 space-y-8">
-                {/* Weekly Summary Section -> Navigates to /upgrade */}
+                {/* Weekly Summary Section */}
                 <div className="text-center mb-8">
                     {isPro ? (
-                        <> {/* Pro User: Show Weekly Summary Feature */}
+                        <> 
                            {profile && ( <Button onClick={handleFetchWeeklySummary} disabled={isFetchingWeekly} variant="secondary" > {isFetchingWeekly ? (<> <Icons.spinner className="mr-2 h-4 w-4 animate-spin" /> Generating Summary... </>) : ( "📅 Get Weekly Summary & Tips" )} </Button> )}
                            {weeklySummary && !isFetchingWeekly && ( <div className="mt-4 bg-gray-100 p-4 rounded-lg text-left max-w-2xl mx-auto shadow-sm border border-gray-200"> <h4 className="font-semibold mb-2 text-gray-700 text-center">Your Weekly Insight</h4> <p className="text-sm text-gray-600 whitespace-pre-wrap">{weeklySummary}</p> </div> )}
                            {weeklyError && !isFetchingWeekly && ( <p className="mt-4 text-red-600 text-sm">{weeklyError}</p> )}
                         </>
                     ) : (
-                        <> {/* Free User: Show Upgrade message for Weekly Summary */}
+                        <>
                             <h3 className="text-lg font-semibold text-gray-700 mb-3">📅 Weekly Summary & Tips</h3>
                             <p className="text-sm text-center text-gray-600 mb-4">Get a personalized summary of your week, including progress insights and actionable tips, by upgrading to Pro.</p>
                             <Button
                                size="sm"
                                className="mx-auto bg-gradient-to-r from-yellow-400 to-orange-500 hover:from-yellow-500 hover:to-orange-600 text-white font-bold shadow-md"
-                               onClick={navigateToUpgrade} // Use the navigation handler
+                               onClick={navigateToUpgrade}
                                >
                                <Zap className="mr-2 h-4 w-4" /> Upgrade to Pro
                             </Button>
@@ -372,25 +373,25 @@ export default function DashboardPage() {
                     )}
                 </div>
 
-                {/* Daily Advice Section -> Navigates to /upgrade */}
+                {/* Daily Advice Section */}
                  <div className="bg-gradient-to-r from-blue-50 to-green-50 p-6 rounded-xl shadow-md border border-blue-100 min-h-[100px] flex flex-col justify-center">
                      {isPro ? (
-                         <> {/* Pro User: Show advice */}
+                         <>
                             {isFetchingDailyAdvice ? ( <div className="text-center"><Icons.spinner className="h-5 w-5 animate-spin text-blue-600 mx-auto"/> <span className="ml-2 text-blue-700 text-sm">Getting your daily tip...</span></div> )
                             : dailyAdvice ? ( <> <h3 className="text-lg font-semibold text-blue-800 mb-3 text-center">💡 Daily Tip & Encouragement</h3> <p className="text-sm text-gray-700 mb-3">{dailyAdvice.advice}</p> <p className="text-sm font-medium text-green-700 mb-3">{dailyAdvice.encouragement}</p> {dailyAdvice.alert && <p className="text-sm text-yellow-800 bg-yellow-100 border border-yellow-300 p-2 rounded font-semibold">Alert: {dailyAdvice.alert}</p>} </> )
-                            : profile ? ( <div className="text-center"> <p className="text-sm text-gray-500">Complete your profile fully during onboarding to receive daily tips!</p> </div> )
+                            : profile && (!profile.activityLevel || !profile.dietaryPreference) ? ( <div className="text-center"> <p className="text-sm text-gray-500">Complete your profile fully (activity level, diet preference) during onboarding to receive daily tips!</p> <Link href="/onboarding"><Button variant="link" size="sm">Update Profile</Button></Link></div> )
                             : !profile ? ( <div className="text-center"> <p className="text-sm text-gray-500">Could not load profile data to generate tips.</p> </div> )
-                            : null
+                            : ( <div className="text-center"><Button onClick={() => triggerDailyAdviceFetch(profile)} variant="ghost" className="text-blue-600 hover:text-blue-700"><Zap className="mr-2 h-4 w-4"/>Generate Today's Tip</Button></div>) 
                             }
                          </>
                      ) : (
-                         <> {/* Free User: Show Upgrade message */}
+                         <>
                              <h3 className="text-lg font-semibold text-blue-800 mb-3 text-center">💡 Daily Tip & Encouragement</h3>
                              <p className="text-sm text-center text-gray-600 mb-4">Unlock personalized daily advice and insights by upgrading to Pro.</p>
                              <Button
                                 size="sm"
                                 className="mx-auto bg-gradient-to-r from-yellow-400 to-orange-500 hover:from-yellow-500 hover:to-orange-600 text-white font-bold shadow-md"
-                                onClick={navigateToUpgrade} // Use the navigation handler
+                                onClick={navigateToUpgrade}
                                 >
                                <Zap className="mr-2 h-4 w-4" /> Upgrade to Pro
                             </Button>
@@ -400,8 +401,6 @@ export default function DashboardPage() {
             </div>
           )}
 
-           {/* Removed PWA Prompt Component from here, relying on button */}
-
         </div> {/* End max-width container */}
       </main>
 
@@ -409,11 +408,29 @@ export default function DashboardPage() {
       <Footer />
 
       {/* --- Chatbot Trigger & Container --- */}
-      {authUser && !isChatboxOpen && ( <Button onClick={toggleChatbox} className="fixed bottom-6 right-6 z-50 rounded-full p-0 h-14 w-14 shadow-lg bg-green-600 hover:bg-green-700 text-white flex items-center justify-center" aria-label="Open AI Chat" title="Chat with AI" > <MessageSquare size={28} /> </Button> )}
-      <div className={`fixed bottom-24 right-6 z-40 transition-all duration-300 ease-out ${isChatboxOpen ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4 pointer-events-none'}`}>
-          {isChatboxOpen && authUser && profile && ( <AiChatbox userId={authUser.uid} userProfile={profile} isOpen={isChatboxOpen} onClose={toggleChatbox} /> )}
+      {authUser && !isChatboxOpen && (
+        <Button
+          onClick={toggleChatbox} 
+          className="fixed bottom-6 right-6 z-50 rounded-full p-0 h-14 w-14 shadow-lg bg-green-600 hover:bg-green-700 text-white flex items-center justify-center"
+          aria-label={isPro ? "Open AI Chat" : "Upgrade to Pro for AI Chat"}
+          title={isPro ? "Chat with AI Coach" : "Unlock AI Coach (Upgrade Required)"}
+        >
+          {isPro ? <MessageSquare size={28} /> : <Lock size={28} />} 
+        </Button>
+      )}
+
+      <div className={`fixed bottom-24 right-6 z-40 transition-all duration-300 ease-out ${isChatboxOpen && isPro ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4 pointer-events-none'}`}>
+        {isChatboxOpen && authUser && profile && isPro && (
+          <AiChatbox
+            userId={authUser.uid}
+            userProfile={profile} 
+            isPremiumUser={isPro} 
+            isOpen={isChatboxOpen}
+            onClose={toggleChatbox}
+          />
+        )}
       </div>
 
-    </div> // End main background div
+    </div> 
   );
 }

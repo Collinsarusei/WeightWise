@@ -238,13 +238,13 @@ export const sendWeeklyFitnessReports = functions.pubsub
 // --- Paystack Payment Initiation Function (Handler) ---
 
 interface InitiatePaymentData {
-  amount: number; // Expecting amount in major unit (e.g., 2.99 for USD)
-  currency: string; // Expecting currency code (e.g., USD)
+  amount: number; 
+  currency: string; 
   billingCycle: "monthly" | "yearly";
 }
 
 interface InitiatePaymentResult {
-  authorization_url?: string; // Paystack returns authorization_url
+  authorization_url?: string; 
   access_code?: string;
   reference?: string;
 }
@@ -283,34 +283,36 @@ const initiateProUpgradePaymentHandler = async (
 
   if (typeof amount !== "number" || isNaN(amount) || amount <= 0 ) {
     throw new functions.https.HttpsError("invalid-argument",
-      "Amount must be a positive number representing the value in USD.");
+      "Amount must be a positive number.");
   }
 
-  if (currency !== "USD") {
-    functions.logger.error("initiatePaystackPayment: Invalid currency received:", currency, ". Expected USD.");
-    throw new functions.https.HttpsError("invalid-argument", `Invalid currency '${currency}'. Expected USD.`);
+  if (currency !== "KES") { // UPDATED: Expect KES
+    functions.logger.error("initiatePaystackPayment: Invalid currency received:", currency, ". Expected KES.");
+    throw new functions.https.HttpsError("invalid-argument", `Invalid currency '${currency}'. Expected KES.`);
   }
   if (billingCycle !== "monthly" && billingCycle !== "yearly") {
     throw new functions.https.HttpsError("invalid-argument",
       "Invalid billing cycle specified.");
   }
 
-  // --- Convert USD amount to smallest unit (Cents) for Paystack ---
-  const amountInCents = Math.round(amount * 100);
+  // --- Convert KES amount to smallest unit (Cents/equivalent) for Paystack ---
+  // Paystack generally requires amount in kobo/cents.
+  // For KES, this typically means multiplying by 100. Double-check Paystack KES requirements.
+  const amountInSmallestUnit = Math.round(amount * 100);
   functions.logger.info(
     "Converting amount for Paystack: " +
-    `${amount} ${currency} -> ${amountInCents} Cents`
+    `${amount} ${currency} -> ${amountInSmallestUnit} (smallest unit)`
   );
-  // --- End Change ---
+  // --- End Change --
 
 
-  const reference = `PRO_${billingCycle.toUpperCase()}_${userId}_${Date.now()}`;
+  const reference = `PRO_${billingCycle.toUpperCase()}_${userId}_${Date.now()}`
 
 
   const apiRequestBody = {
     email: userEmail,
-    amount: amountInCents, // <-- Send amount in cents
-    currency: currency, // <-- Send 'USD'
+    amount: amountInSmallestUnit, // <-- Send amount in smallest unit
+    currency: currency, // <-- Send 'KES'
     reference: reference,
     metadata: {
       userId: userId,
@@ -347,7 +349,7 @@ const initiateProUpgradePaymentHandler = async (
     // Use Axios as per original code
     const response = await axios.post<PaystackInitResponse>(
       paystackApiUrl,
-      apiRequestBody, // Contains amountInCents
+      apiRequestBody, // Contains amountInSmallestUnit
       {
         headers: {
           "Authorization": `Bearer ${secretKey}`,
@@ -433,16 +435,19 @@ export const handlePaystackWebhook = functions.https.onRequest(
 
     let requestBodyString: string;
     try {
+      // Paystack recommends using the raw body if available, otherwise stringify
+      // For Firebase, req.rawBody might not be populated by default without middleware
+      // Using JSON.stringify(req.body) is generally okay if Content-Type is application/json
       requestBodyString = JSON.stringify(req.body);
     } catch (e) {
       functions.logger.error("Failed to stringify request body for webhook verification", e);
       res.status(400).send("Invalid request body format.");
       return;
     }
-
+    
     const hash = crypto
       .createHmac("sha512", secret)
-      .update(requestBodyString)
+      .update(requestBodyString) // Use stringified body
       .digest("hex");
     const signature = req.headers["x-paystack-signature"] as string;
 
@@ -474,6 +479,14 @@ export const handlePaystackWebhook = functions.https.onRequest(
 
       const transactionId = transactionData?.id;
 
+      // Validate currency if present (optional but good practice)
+      const paidCurrency = transactionData?.currency;
+      if (paidCurrency && paidCurrency !== "KES") {
+          functions.logger.warn(`Webhook for reference ${reference} has currency ${paidCurrency} but KES was expected.`);
+          // Decide if this is a critical error or just a warning
+      }
+
+
       if (!reference || !userId || !plan || !billingCycle) {
         functions.logger.error(
           "Missing reference, userId, plan, or billingCycle in Paystack data/metadata.",
@@ -502,14 +515,14 @@ export const handlePaystackWebhook = functions.https.onRequest(
 
       try {
         await userRef.update({
-          plan: "premium",
+          plan: "premium", // Make sure this matches your plan identifier
           billingCycle: billingCycle,
-          planStatus: "active",
+          planStatus: "active", // Or your equivalent status for a paid user
           subscriptionUpdatedAt: admin.firestore.FieldValue.serverTimestamp(),
           lastTransactionRef: reference,
           lastTransactionId: transactionId,
           // Consider clearing reminder flags here if needed
-          expiryReminderSent: admin.firestore.FieldValue.delete(),
+          expiryReminderSent: admin.firestore.FieldValue.delete(), 
         });
 
         functions.logger.info(
@@ -523,6 +536,8 @@ export const handlePaystackWebhook = functions.https.onRequest(
           dbError
         );
 
+        // Respond 200 to Paystack to acknowledge receipt, even if DB update fails,
+        // to prevent Paystack from retrying indefinitely. Log the error for manual follow-up.
         res.status(200).send("Internal server error processing payment update.");
       }
     } else {

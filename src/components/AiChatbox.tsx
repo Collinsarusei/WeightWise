@@ -2,15 +2,16 @@
 'use client';
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import Link from 'next/link'; // Import Link
+import Link from 'next/link';
+import { useRouter } from 'next/navigation'; // Import useRouter
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Icons } from '@/components/icons';
-import { X, History, ArrowLeft, Edit, Trash2, Loader2, MessageSquare } from 'lucide-react'; // Added icons
+import { X, History, ArrowLeft, Edit, Trash2, Loader2, MessageSquare, Sparkles } from 'lucide-react';
 import { getAiChatResponse } from '@/app/actions/chatActions';
 import type { ChatMessage, GenerateChatResponseInput } from '@/ai/flows/generate-chat-response';
-import { db, functions } from '@/lib/firebase/config'; // Import db and functions
-import { httpsCallable } from 'firebase/functions'; // Import httpsCallable
+import { db, functions } from '@/lib/firebase/config';
+import { httpsCallable } from 'firebase/functions';
 import {
   collection,
   addDoc,
@@ -47,6 +48,7 @@ interface AiChatboxProps {
       username?: string;
       email?: string;
   } | null;
+  isPremiumUser: boolean; // Added for premium check
   isOpen: boolean;
   onClose: () => void;
 }
@@ -63,19 +65,19 @@ interface ChatSession {
 }
 
 // --- Component --- 
-export const AiChatbox: React.FC<AiChatboxProps> = ({ userId, userProfile, isOpen, onClose }) => {
-  const [view, setView] = useState<'historyList' | 'conversationView'>('conversationView'); // Start in conversation view
+export const AiChatbox: React.FC<AiChatboxProps> = ({ userId, userProfile, isPremiumUser, isOpen, onClose }) => {
+  const router = useRouter(); // Initialize router
+  const [view, setView] = useState<'historyList' | 'conversationView'>('conversationView');
   const [sessions, setSessions] = useState<ChatSession[]>([]);
-  const [messages, setMessages] = useState<ChatMessage[]>([]); // Messages for the selected session
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
   const [input, setInput] = useState('');
-  const [isLoading, setIsLoading] = useState(false); // Loading AI response
-  const [isSessionLoading, setIsSessionLoading] = useState(false); // Loading session list or messages
+  const [isLoading, setIsLoading] = useState(false);
+  const [isSessionLoading, setIsSessionLoading] = useState(false);
   const [deletingSessionId, setDeletingSessionId] = useState<string | null>(null);
   const messagesEndRef = useRef<null | HTMLDivElement>(null);
   const { toast } = useToast();
 
-  // --- Utility Functions --- 
   const clearChatState = () => {
       setMessages([]);
       setCurrentSessionId(null);
@@ -84,9 +86,8 @@ export const AiChatbox: React.FC<AiChatboxProps> = ({ userId, userProfile, isOpe
       setIsSessionLoading(false);
   }
 
-  // --- Fetch Sessions (for history view) --- 
   const fetchSessions = useCallback(() => {
-    if (!userId) return;
+    if (!userId || !isPremiumUser) return; // Do not fetch if not premium
     setIsSessionLoading(true);
     const sessionsRef = collection(db, `users/${userId}/chatSessions`);
     const q = query(sessionsRef, orderBy('startTime', 'desc')); 
@@ -103,14 +104,13 @@ export const AiChatbox: React.FC<AiChatboxProps> = ({ userId, userProfile, isOpe
       toast({ title: "Error Loading History", description: error.message, variant: "destructive" });
       setIsSessionLoading(false);
     });
-    return unsubscribe; // Returns the unsubscribe function from onSnapshot
-  }, [userId, toast]);
+    return unsubscribe;
+  }, [userId, toast, isPremiumUser]);
 
-  // --- Fetch Messages (for selected conversation view) ---
   const fetchMessagesForSession = useCallback((sessionId: string) => {
-    if (!userId) return;
+    if (!userId || !isPremiumUser) return; // Do not fetch if not premium
     setIsSessionLoading(true);
-    setMessages([]); // Clear previous messages
+    setMessages([]);
     const messagesRef = collection(db, `users/${userId}/chatSessions/${sessionId}/messages`);
     const q = query(messagesRef, orderBy('timestamp', 'asc'));
 
@@ -123,48 +123,44 @@ export const AiChatbox: React.FC<AiChatboxProps> = ({ userId, userProfile, isOpe
         toast({ title: "Error Loading Messages", description: error.message, variant: "destructive" });
         setIsSessionLoading(false);
     });
-    return unsubscribe; // Returns the unsubscribe function from onSnapshot
-  }, [userId, toast]);
+    return unsubscribe;
+  }, [userId, toast, isPremiumUser]);
 
-  // --- Effects --- 
-  // Effect to manage listeners based on view and session ID
   useEffect(() => {
-    // Adjust type to allow undefined, matching potential return from callbacks
     let unsubscribe: (() => void) | undefined | null = null; 
 
-    if (isOpen && userId) {
+    if (isOpen && userId && isPremiumUser) { // Only proceed if premium
       if (view === 'historyList') {
-        unsubscribe = fetchSessions(); // Assign result directly
+        unsubscribe = fetchSessions();
       } else if (view === 'conversationView' && currentSessionId) {
-        unsubscribe = fetchMessagesForSession(currentSessionId); // Assign result directly
+        unsubscribe = fetchMessagesForSession(currentSessionId);
       } else {
-          // In conversation view but no session ID (new chat), clear messages
           setMessages([]); 
           setIsSessionLoading(false);
       }
+    } else if (!isPremiumUser && isOpen) {
+        // If not premium and chat is open, clear state and show minimal UI
+        clearChatState();
+        setView('conversationView'); // Default to conversation view to show upgrade message
     } else {
-        clearChatState(); // Clear everything when closed or no user
+        clearChatState();
     }
 
-    // Cleanup listener: Only call if unsubscribe is a function
     return () => {
       if (unsubscribe) { 
         unsubscribe();
       }
     };
-  // Dependencies now correctly include the functions themselves
-  }, [isOpen, userId, view, currentSessionId, fetchSessions, fetchMessagesForSession]); 
+  }, [isOpen, userId, view, currentSessionId, fetchSessions, fetchMessagesForSession, isPremiumUser]); 
 
-  // Scroll to bottom effect
   useEffect(() => {
-    if (!isSessionLoading) {
+    if (!isSessionLoading && isPremiumUser) {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }
-  }, [messages, isSessionLoading]);
+  }, [messages, isSessionLoading, isPremiumUser]);
 
-  // --- Session Management Functions --- 
   const startNewChatSession = useCallback(async (firstMessage: ChatMessage): Promise<string | null> => {
-    if (!userId) return null;
+    if (!userId || !isPremiumUser) return null;
     try {
       const sessionsRef = collection(db, `users/${userId}/chatSessions`);
       const newSessionDoc = await addDoc(sessionsRef, {
@@ -172,16 +168,15 @@ export const AiChatbox: React.FC<AiChatboxProps> = ({ userId, userProfile, isOpe
         userId: userId,
         firstMessage: firstMessage.text.substring(0, 100), 
       });
-      console.log("New chat session created:", newSessionDoc.id);
       return newSessionDoc.id;
     } catch (error) {
       console.error("Error starting new chat session:", error);
       return null;
     }
-  }, [userId]);
+  }, [userId, isPremiumUser]);
 
   const saveMessageToCurrentSession = useCallback(async (sessionId: string, message: ChatMessage) => {
-    if (!userId || !sessionId) return;
+    if (!userId || !sessionId || !isPremiumUser) return;
     try {
         const messagesRef = collection(db, `users/${userId}/chatSessions/${sessionId}/messages`);
         await addDoc(messagesRef, {
@@ -189,20 +184,18 @@ export const AiChatbox: React.FC<AiChatboxProps> = ({ userId, userProfile, isOpe
             userId: userId,
             timestamp: serverTimestamp()
         });
-        console.log(`Message saved to session ${sessionId}:`, message.role);
     } catch (error) {
         console.error(`Error saving message to session ${sessionId}:`, error);
     }
-  }, [userId]);
+  }, [userId, isPremiumUser]);
 
   const handleDeleteSession = async (sessionId: string) => {
-    if (!userId || !sessionId || deletingSessionId) return;
+    if (!userId || !sessionId || deletingSessionId || !isPremiumUser) return;
     setDeletingSessionId(sessionId); 
     try {
         const deleteChatSessionFn = httpsCallable(functions, 'deleteChatSession');
         await deleteChatSessionFn({ sessionId: sessionId }); 
         toast({ title: "Success", description: "Chat session deleted." });
-        // If currently viewing the deleted session, switch to history list
         if (currentSessionId === sessionId) {
             setView('historyList');
             setCurrentSessionId(null);
@@ -216,36 +209,35 @@ export const AiChatbox: React.FC<AiChatboxProps> = ({ userId, userProfile, isOpe
     }
   };
 
-  // --- UI Event Handlers --- 
   const handleSend = async () => {
+    if (!isPremiumUser) {
+        router.push('/upgrade');
+        onClose(); // Optionally close the chatbox
+        return;
+    }
     if (!input.trim() || isLoading || !isOpen || !userProfile || !userId) return;
 
     const userMessage: ChatMessage = { role: 'user', text: input.trim() };
     const currentInput = input.trim();
-    let sessionId = currentSessionId; // Use current session or start new one
-    let tempMessages = [...messages, userMessage]; // Snapshot for optimistic UI and AI context
+    let sessionId = currentSessionId;
+    let tempMessages = [...messages, userMessage];
 
     setIsLoading(true);
     setInput(''); 
-    setMessages(tempMessages); // Optimistic UI update
+    setMessages(tempMessages);
 
     try {
         if (!sessionId) {
-            console.log("Starting new session...");
             const newSessionId = await startNewChatSession(userMessage);
             if (!newSessionId) throw new Error("Failed to create new chat session.");
             sessionId = newSessionId;
-            setCurrentSessionId(sessionId); // Store the new session ID
-            // Save the first user message to the *new* session
+            setCurrentSessionId(sessionId);
             await saveMessageToCurrentSession(sessionId, userMessage);
-            console.log(`Saved first message to new session: ${sessionId}`);
         } else {
-             // Save subsequent user message to the existing session
             await saveMessageToCurrentSession(sessionId, userMessage);
         }
 
         const bestName = userProfile.username || userProfile.email || 'User';
-        // Pass history from the *optimistically updated* state
         const historyForAI = tempMessages.slice(-10); 
         
         const chatInput: GenerateChatResponseInput = {
@@ -258,43 +250,79 @@ export const AiChatbox: React.FC<AiChatboxProps> = ({ userId, userProfile, isOpe
             username: bestName,
         };
 
-        console.log("CLIENT: Preparing to send chatInput to AI:", chatInput);
         const result = await getAiChatResponse(chatInput);
         const aiMessage: ChatMessage = { role: 'model', text: result.response };
         
-        setMessages(prev => [...prev, aiMessage]); // Optimistic UI update for AI message
-        await saveMessageToCurrentSession(sessionId, aiMessage); // Save AI message
+        setMessages(prev => [...prev, aiMessage]);
+        await saveMessageToCurrentSession(sessionId, aiMessage);
 
     } catch (error) {
         console.error("handleSend Error:", error);
         const errorMessage: ChatMessage = { role: 'model', text: "Sorry, something went wrong processing your message." };
-        setMessages(prev => [...prev, errorMessage]); // Show error in UI
+        setMessages(prev => [...prev, errorMessage]);
     } finally {
         setIsLoading(false);
     }
   };
 
   const handleKeyPress = (event: React.KeyboardEvent<HTMLInputElement>) => {
-    if (event.key === 'Enter' && !isLoading && input.trim()) { handleSend(); }
+    if (event.key === 'Enter' && !isLoading && input.trim()) {
+        if (!isPremiumUser) {
+            router.push('/upgrade');
+            onClose();
+        } else {
+            handleSend();
+        }
+    }
   };
 
   const handleSelectSession = (sessionId: string) => {
-      console.log("Selecting session:", sessionId);
+      if (!isPremiumUser) return; // Prevent action if not premium
       setCurrentSessionId(sessionId);
       setView('conversationView');
-      // Message fetching is handled by useEffect
   };
 
   const handleStartNewChat = () => {
-      console.log("Starting new chat");
+      if (!isPremiumUser) return; // Prevent action if not premium
       clearChatState();
       setView('conversationView');
   }
+  
+  // --- Render Premium Gate if not a premium user ---
+  if (!isPremiumUser) {
+    return (
+        <div className="flex flex-col h-[400px] md:h-[450px] w-full max-w-xs sm:max-w-sm border rounded-lg shadow-xl bg-white overflow-hidden items-center justify-center p-6 text-center">
+            <div className="p-3 border-b bg-gray-50 rounded-t-lg flex justify-between items-center flex-shrink-0 gap-2 w-full absolute top-0 left-0 right-0">
+                <div className="flex-1"></div> {/* Spacer */} 
+                <h3 className="font-semibold text-sm text-gray-700 flex-1 text-center truncate">
+                    AI Chat 
+                </h3>
+                <Button onClick={onClose} variant="ghost" size="sm" className="p-1 h-auto" aria-label="Close chat">
+                    <X size={18} className="text-gray-600" />
+                </Button>
+            </div>
 
-  // --- Render Logic --- 
+            <Sparkles className="h-12 w-12 text-yellow-500 mb-4" />
+            <h3 className="text-lg font-semibold text-gray-800 mb-2">Unlock AI Coach</h3>
+            <p className="text-sm text-gray-600 mb-6">
+                Upgrade to Premium to get personalized advice, ask questions, and stay motivated with your AI fitness coach.
+            </p>
+            <Button 
+                onClick={() => {
+                    router.push('/upgrade');
+                    onClose(); // Close chatbox after redirecting
+                }}
+                className="bg-green-600 hover:bg-green-700 text-white w-full"
+            >
+                Upgrade to Premium
+            </Button>
+        </div>
+    );
+  }
+
+  // --- Render Full Chatbox for Premium Users --- 
   return (
     <div className="flex flex-col h-[400px] md:h-[450px] w-full max-w-xs sm:max-w-sm border rounded-lg shadow-xl bg-white overflow-hidden">
-      {/* Header: Changes based on view */} 
       <div className="p-3 border-b bg-gray-50 rounded-t-lg flex justify-between items-center flex-shrink-0 gap-2">
         {view === 'conversationView' && (
              <Button variant="ghost" size="sm" className="p-1 h-auto" title="View History" onClick={() => setView('historyList')}>
@@ -316,9 +344,7 @@ export const AiChatbox: React.FC<AiChatboxProps> = ({ userId, userProfile, isOpe
         </Button>
       </div>
 
-      {/* Content Area: Changes based on view */} 
       <div className="flex-1 overflow-y-auto p-3 space-y-2">
-        {/* History List View */} 
         {view === 'historyList' && (
             <>
                 {isSessionLoading && (
@@ -369,7 +395,6 @@ export const AiChatbox: React.FC<AiChatboxProps> = ({ userId, userProfile, isOpe
             </>
         )}
 
-        {/* Conversation View */} 
         {view === 'conversationView' && (
             <>
                  {isSessionLoading && (
@@ -393,7 +418,6 @@ export const AiChatbox: React.FC<AiChatboxProps> = ({ userId, userProfile, isOpe
                      </div> 
                    </div> 
                  ))}
-                 {/* Loading indicator only when waiting for AI response */}
                  {isLoading && (
                      <div className="flex justify-start items-center pl-2 pt-1">
                          <Icons.spinner className="h-4 w-4 animate-spin text-gray-400" />
@@ -404,7 +428,6 @@ export const AiChatbox: React.FC<AiChatboxProps> = ({ userId, userProfile, isOpe
         )}
       </div>
 
-      {/* Input Area: Only show in conversation view */} 
       {view === 'conversationView' && (
           <div className="p-2 border-t flex gap-2 flex-shrink-0">
              <Input 
