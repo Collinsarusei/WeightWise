@@ -14,7 +14,8 @@ import { Input } from '@/components/ui/input';
 import { Icons } from '@/components/icons';
 import { doc, getDoc, collection, getDocs, query, orderBy, Timestamp } from 'firebase/firestore';
 import Link from "next/link";
-import { MessageSquare, ChevronLeft, CalendarClock, Zap, Download, Lock } from 'lucide-react'; // Added Lock icon
+// Updated to remove Lock, MessageSquare is always used for the chat trigger icon.
+import { MessageSquare, ChevronLeft, CalendarClock, Zap, Download } from 'lucide-react'; 
 import { useToast } from '@/hooks/use-toast';
 import { logExercise } from '@/lib/firebase/exerciseService';
 import { createWeightEntry } from '@/services/external-apis/weight-tracker';
@@ -133,9 +134,6 @@ export default function DashboardPage() {
       if (docSnap.exists()) {
         fetchedProfile = docSnap.data() as UserProfile;
         if (!fetchedProfile.username && authUser?.displayName) { fetchedProfile.username = authUser.displayName; }
-        // Ensure profile.isPro is consistent with useAuth.isPro if profile has its own isPro field
-        // Or rely solely on useAuth.isPro for premium status checks.
-        // For simplicity, we assume `useAuth().isPro` is the primary source of truth for premium status.
         setProfile(fetchedProfile);
       } else { console.log("[fetchProfile] No user profile document found!"); }
     } catch (error) { console.error("[fetchProfile] Error fetching profile document:", error); }
@@ -171,7 +169,7 @@ export default function DashboardPage() {
         fetchExercises(authUser.uid)
       ]).then(([profileResult]) => {
          setIsDashboardLoading(false);
-         if (profileResult.status === 'fulfilled' && profileResult.value && isPro) { // Check profileResult.value is not null
+         if (profileResult.status === 'fulfilled' && profileResult.value && isPro) { 
              triggerDailyAdviceFetch(profileResult.value);
          }
       });
@@ -189,24 +187,20 @@ export default function DashboardPage() {
   const handleFetchWeeklySummary = async () => { if (!authUser) return; setIsFetchingWeekly(true); setWeeklyError(null); setWeeklySummary(null); try { const result = await generateWeeklySummary({ userId: authUser.uid }); setWeeklySummary(result.summary); } catch (error) { console.error("Error fetching weekly summary:", error); setWeeklyError("Could not fetch weekly summary."); } finally { setIsFetchingWeekly(false); } };
   
   const toggleChatbox = () => {
-    // If user is not Pro and is trying to open the chatbox, redirect to upgrade
-    if (!isPro && !isChatboxOpen) { // Check if trying to OPEN and not pro
+    if (!isPro && !isChatboxOpen) { 
       router.push('/upgrade');
-      return; // Important: stop further execution to prevent opening
+      return; 
     }
-    // Otherwise, toggle as normal (handles opening for Pro, and all closing actions)
     setIsChatboxOpen(prev => !prev);
   };
 
   const handlePreviousWeek = () => { setViewedWeekStart(prev => addDays(prev, -7)); };
   const handleGoToThisWeek = () => { setViewedWeekStart(currentWeekStartDate); };
 
-  // Handler to Navigate to Upgrade Page (already exists, can be reused)
   const navigateToUpgrade = () => {
     router.push('/upgrade');
   };
 
-  // --- PWA Install Button Handler ---
   const handleInstallClick = async () => {
     if (!deferredInstallPrompt) {
       console.log('Install prompt event not available.');
@@ -224,8 +218,7 @@ export default function DashboardPage() {
     }
   };
 
-  // --- Render Logic ---
-  if (authLoading || (!profile && authUser && authUser.emailVerified)) { // Keep loading if authUser exists but profile isn't fetched yet
+  if (authLoading || (!profile && authUser && authUser.emailVerified)) { 
     return ( <div className="flex items-center justify-center min-h-screen"><Icons.spinner className="h-16 w-16 animate-spin text-green-600" /></div> );
   }
 
@@ -251,7 +244,7 @@ export default function DashboardPage() {
 
           {/* --- Profile Section --- */}
           <div className="mb-6 p-6 rounded-xl shadow-lg bg-white/80 border border-gray-200 min-h-[150px] flex flex-col justify-center">
-             {isDashboardLoading && !profile ? ( // Show spinner if dashboard loading AND profile is not yet set
+             {isDashboardLoading && !profile ? ( 
                  <div className="text-center"><Icons.spinner className="h-6 w-6 animate-spin text-green-600 mx-auto" /></div>
              ) : (
                  <>
@@ -415,7 +408,8 @@ export default function DashboardPage() {
           aria-label={isPro ? "Open AI Chat" : "Upgrade to Pro for AI Chat"}
           title={isPro ? "Chat with AI Coach" : "Unlock AI Coach (Upgrade Required)"}
         >
-          {isPro ? <MessageSquare size={28} /> : <Lock size={28} />} 
+          {/* Icon is now always MessageSquare, Lock icon import is removed */} 
+          <MessageSquare size={28} /> 
         </Button>
       )}
 
